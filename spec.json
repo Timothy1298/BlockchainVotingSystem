@@ -1,0 +1,37 @@
+{
+  "project": "University Blockchain Voting System",
+  "roles": {
+    "admin": {
+      "permissions": [
+        "Create and manage elections",
+        "Add, update, delete candidates",
+        "View live election results",
+        "View voter turnout statistics",
+        "Manage voter accounts"
+      ],
+      "sidebarTabs": [
+        "Dashboard",
+        "Elections",
+        "Candidates",
+        "Results",
+        "Voters",
+        "Settings",
+        "Logout"
+      ]
+    },
+    "voter": {
+      "permissions": [
+        "View available elections",
+        "Cast one vote per election",
+        "View results after election ends"
+      ],
+      "sidebarTabs": [
+        "Dashboard",
+        "Elections",
+        "Results",
+        "Profile",
+        "Logout"
+      ]
+    }
+  }
+}
