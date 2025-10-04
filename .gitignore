@@ -1,0 +1,81 @@
+# --------------------
+# Node modules
+# --------------------
+node_modules/
+jspm_packages/
+
+# --------------------
+# Logs
+# --------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --------------------
+# Environment & config
+# --------------------
+.env
+.env.local
+.env.*.local
+config/*.json        # if contains sensitive info
+secret/*.json        # optional
+
+# --------------------
+# Build & output
+# --------------------
+dist/
+build/
+coverage/
+tmp/
+temp/
+
+# --------------------
+# OS / Editor / IDE
+# --------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+.vscode/
+.idea/
+*.iml
+
+# --------------------
+# Database / Data files
+# --------------------
+*.sqlite
+*.sqlite3
+*.db
+dump.sql
+*.bak
+
+# --------------------
+# Misc
+# --------------------
+*.tgz
+*.zip
+*.tar.gz
+*.env.backup
+
+# --------------------
+# Optional: Ignore test coverage reports
+# --------------------
+coverage/
+.nyc_output/
+
+# --------------------
+# npm package lock files (optional)
+# --------------------
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml    
+# Uncomment if you want to ignore lock files, but generally it's recommended to keep them in version control.
+# --------------------
+# Custom ignores
+# --------------------
+# Add any other files or directories you want to ignore below
