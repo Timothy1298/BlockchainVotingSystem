@@ -13,6 +13,7 @@ const Register = () => {
     password: "",
     confirmPassword: "",
     role: "",
+    adminKey: ""
   });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null); // { type, text }
@@ -32,17 +33,30 @@ const Register = () => {
       return;
     }
 
-    register(formData.fullName, formData.email, formData.password, formData.role)
+    const roleToSend = formData.role || "voter";
+    const payload = {
+      fullName: formData.fullName,
+      email: formData.email,
+      password: formData.password,
+      role: roleToSend
+    };
+    if (roleToSend === "admin") {
+      payload.adminKey = formData.adminKey;
+    }
+    console.log('Register form submit:', payload);
+    register(payload)
       .then(() => {
         setLoading(false);
         setMessage({ type: 'success', text: 'Registered successfully — redirecting to login...' });
+        setTimeout(() => setMessage(null), 40000); // message lasts 40s
         setTimeout(() => navigate('/login'), 900);
       })
       .catch((err) => {
         setLoading(false);
-        console.error(err);
+        console.error('Registration error:', err);
         const msg = err?.response?.data?.message || (err?.response?.data?.errors && err.response.data.errors.map(e=>e.msg).join(', ')) || 'Registration failed';
         setMessage({ type: 'error', text: msg });
+        setTimeout(() => setMessage(null), 40000); // message lasts 40s
       });
   };
 
@@ -85,15 +99,28 @@ const Register = () => {
           <InputField label="Email Address" name="email" type="email" value={formData.email} onChange={handleChange} />
           <InputField label="Password" name="password" type="password" value={formData.password} onChange={handleChange} />
           <InputField label="Confirm Password" name="confirmPassword" type="password" value={formData.confirmPassword} onChange={handleChange} />
+
           <SelectField label="Role" name="role" value={formData.role} onChange={handleChange}
             options={[{label: "Voter", value:"voter"}, {label: "Admin", value:"admin"}]} />
+
+          {/* Admin Key Field - only show if role is admin */}
+          {formData.role === "admin" && (
+            <InputField label="Admin Registration Key" name="adminKey" type="password" value={formData.adminKey} onChange={handleChange} />
+          )}
 
           {/* Submit Button - Styling inherited from SubmitButton component */}
           {/* Increased margin for better separation */}
           <div className="pt-4">
             <SubmitButton text="Register" loading={loading} />
           </div>
-          
+
+          {/* Error/Success Message */}
+          {message && (
+            <div className={`mt-2 text-center px-4 py-2 rounded ${message.type === 'error' ? 'bg-red-700 text-white' : 'bg-green-700 text-white'}`}>
+              {message.text}
+            </div>
+          )}
+
           {/* Login Link */}
           <p className="text-sm text-gray-400 pt-2 text-center">
             Already have an account?{" "}

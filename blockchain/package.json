@@ -2,5 +2,12 @@
   "devDependencies": {
     "@nomiclabs/hardhat-ethers": "^2.2.3",
     "ethers": "^5.8.0"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "express-validator": "^7.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.19.0",
+    "truffle": "^5.11.5"
   }
 }

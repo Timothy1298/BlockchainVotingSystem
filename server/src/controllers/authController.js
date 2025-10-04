@@ -18,18 +18,30 @@ exports.register = async (req, res) => {
   }
   try {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    if (!errors.isEmpty()) {
+      console.error('Registration validation errors:', errors.array(), 'Request body:', req.body);
+      return res.status(400).json({ errors: errors.array() });
+    }
 
     const { fullName, email, password, role } = req.body;
     // If attempting to create an admin, require a registration key to prevent abuse
     if (role === 'admin') {
       const adminKey = process.env.ADMIN_REGISTRATION_KEY;
       const provided = req.headers['x-admin-key'] || req.body.adminKey;
-      if (!adminKey) return res.status(403).json({ message: 'Admin registration disabled. Set ADMIN_REGISTRATION_KEY to enable.' });
-      if (provided !== adminKey) return res.status(403).json({ message: 'Invalid admin registration key' });
+      if (!adminKey) {
+        console.error('Admin registration attempted but ADMIN_REGISTRATION_KEY not set');
+        return res.status(403).json({ message: 'Admin registration disabled. Set ADMIN_REGISTRATION_KEY to enable.' });
+      }
+      if (provided !== adminKey) {
+        console.error('Invalid admin registration key provided:', provided);
+        return res.status(403).json({ message: 'Invalid admin registration key' });
+      }
     }
     let user = await User.findOne({ email });
-    if (user) return res.status(400).json({ message: 'Email already registered' });
+    if (user) {
+      console.error('Registration failed: Email already registered:', email);
+      return res.status(400).json({ message: 'Email already registered' });
+    }
 
     const salt = await bcrypt.genSalt(10);
     const hashed = await bcrypt.hash(password, salt);
@@ -43,8 +55,8 @@ exports.register = async (req, res) => {
 
     res.json({ token, user: { id: user._id, fullName: user.fullName, email: user.email, role: user.role } });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Registration error:', err, 'Request body:', req.body);
+    res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
 
@@ -56,20 +68,29 @@ exports.login = async (req, res) => {
   }
   try {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    if (!errors.isEmpty()) {
+      console.error('Login validation errors:', errors.array(), 'Request body:', req.body);
+      return res.status(400).json({ errors: errors.array() });
+    }
 
     const { email, password } = req.body;
     const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: 'Invalid credentials' });
+    if (!user) {
+      console.error('Login failed: User not found for email:', email);
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
+    if (!isMatch) {
+      console.error('Login failed: Incorrect password for email:', email);
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
 
     const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
     res.json({ token, user: { id: user._id, fullName: user.fullName, email: user.email, role: user.role } });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Login error:', err, 'Request body:', req.body);
+    res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
 exports.forgotPassword = async (req, res) => {

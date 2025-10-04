@@ -1,253 +1,205 @@
-import React, { useEffect, useState, useContext } from "react";
-import { DashboardLayout } from "../components/Layout";
-import { motion } from "framer-motion";
-import { sendVoteOnChain, postTxReceipt } from '../services/web3';
-import { useGlobalUI } from '../components/GloabalUI.jsx';
+import React, { useContext, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { DashboardLayout } from "../layouts/DashboardLayout";
 import { AuthContext } from "../context/AuthContext";
-import API from '../services/api';
-import { useLocation } from 'react-router-dom';
+import { VotePieChart, VoteBarChart } from "../components/VoteCharts";
+import API from "../services/api";
+import Toast from "../components/Toast";
 
 const Dashboard = () => {
-  const { token, user, logout } = useContext(AuthContext); // Added 'user' and logout
-  const [elections, setElections] = useState([]);
-  const [selectedElection, setSelectedElection] = useState(null);
+  const { user, token, logout } = useContext(AuthContext);
+  const navigate = useNavigate();
+
+  const [overview, setOverview] = useState({ active: [], upcoming: [], completed: [] });
+  const [results, setResults] = useState(null);
+  const [voterStats, setVoterStats] = useState({ total: 0, cast: 0, rate: 0 });
   const [candidates, setCandidates] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [loadingCandidate, setLoadingCandidate] = useState(null);
-  const [hasVoted, setHasVoted] = useState(false);
-  const [txStatus, setTxStatus] = useState(null);
-  const { showLoader, hideLoader, showToast } = useGlobalUI();
+  const [blockchain, setBlockchain] = useState({});
+  const [logs, setLogs] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [toastMsg, setToastMsg] = useState("");
 
-  const location = useLocation();
+  // Redirect if not logged in
+  useEffect(() => {
+    if (!token) navigate("/login");
+  }, [token]);
+
+  const showToast = (msg) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(""), 4000);
+  };
+
+  // Unified fetch
+  const fetchAllDashboardData = async () => {
+    try {
+      const [
+        overviewRes,
+        resultsRes,
+        voterStatsRes,
+        candidatesRes,
+        blockchainRes,
+        logsRes,
+        alertsRes,
+        notificationsRes,
+      ] = await Promise.allSettled([
+        API.get("/elections/overview"),
+        API.get("/results/overview"),
+        API.get("/voters/stats"),
+        API.get("/candidates/overview"),
+        API.get("/blockchain/status"),
+        API.get("/audit-logs"),
+        API.get("/alerts"),
+        API.get("/notifications"),
+      ]);
+
+      if (overviewRes.status === "fulfilled") setOverview(overviewRes.value.data);
+      if (resultsRes.status === "fulfilled") setResults(resultsRes.value.data);
+      if (voterStatsRes.status === "fulfilled") setVoterStats(voterStatsRes.value.data);
+      if (candidatesRes.status === "fulfilled") setCandidates(candidatesRes.value.data);
+      if (blockchainRes.status === "fulfilled") setBlockchain(blockchainRes.value.data);
+      if (logsRes.status === "fulfilled") setLogs(logsRes.value.data);
+      if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.alerts || []);
+      if (notificationsRes.status === "fulfilled") setNotifications(notificationsRes.value.data);
+
+      [overviewRes, resultsRes, voterStatsRes, candidatesRes, blockchainRes, logsRes, alertsRes, notificationsRes].forEach((res, i) => {
+        if (res.status === "rejected")
+          showToast(`⚠️ Failed to load ${["overview","results","voter stats","candidates","blockchain","logs","alerts","notifications"][i]}`);
+      });
+    } catch (err) {
+      console.error(err);
+      showToast("⚠️ Failed to fetch dashboard data.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const init = async () => {
-      setLoading(true);
-      await fetchElections();
-      setLoading(false);
-    };
-    init();
-    // if navigation provided an electionId (from Elections page), preselect it
-    const stateElectionId = location?.state?.electionId;
-    if (stateElectionId) {
-      setSelectedElection(stateElectionId);
-    }
+    setLoading(true);
+    fetchAllDashboardData();
+    const interval = setInterval(fetchAllDashboardData, 30000);
+    return () => clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    if (selectedElection) {
-      // Ensure selectedElection is an object for ID extraction if it was set via route state
-      const id = selectedElection._id || selectedElection.id || selectedElection;
-      if (id) {
-          fetchCandidates(id);
-          checkHasVoted(id);
-      }
-    }
-  }, [selectedElection]);
-
-  const fetchElections = async () => {
-    try {
-      const res = await API.get('/elections');
-      const data = res.data;
-      if (!Array.isArray(data)) {
-        console.warn('Unexpected elections response', data);
-        setElections([]);
-      } else {
-        setElections(data || []);
-        // Auto-select the first one if none is preselected
-        if (!selectedElection && (data || []).length > 0) setSelectedElection(data[0]);
-      }
-    } catch (err) {
-      if (err?.response?.status === 401) { logout?.(); return; }
-      console.error('Failed to load elections', err);
-      setElections([]);
-    }
-  };
-
-  const fetchCandidates = async (electionId) => {
-    try {
-      const res = await API.get(`/elections/${electionId}/candidates`);
-      const data = res.data;
-      setCandidates(Array.isArray(data) ? data : []);
-    } catch (err) {
-      if (err?.response?.status === 401) { logout?.(); return; }
-      console.error('Failed to load candidates', err);
-      setCandidates([]);
-    }
-  };
-
-  const checkHasVoted = async (electionId) => {
-    try {
-      const res = await API.get('/votes/hasVoted', { params: { electionId } });
-      const data = res.data;
-      setHasVoted(!!data?.hasVoted);
-    } catch (err) {
-      if (err?.response?.status === 401) { logout?.(); return; }
-      console.error('hasVoted check failed', err);
-    }
-  };
-
-  const addCandidate = async () => {
-    if (user?.role?.toLowerCase() !== 'admin') return alert('Admin access required.');
-    if (!selectedElection) return alert('Select an election first');
-    const name = window.prompt('Enter the full name of the new candidate');
-    if (!name || String(name).trim().length === 0) return;
-    try {
-      setLoading(true);
-      await API.post(`/elections/${selectedElection._id || selectedElection.id}/candidates`, { name });
-      alert('✅ Candidate added');
-      await fetchCandidates(selectedElection._id || selectedElection.id);
-    } catch (err) {
-      if (err?.response?.status === 401) { logout?.(); return; }
-      console.error(err);
-      alert('❌ Failed to add candidate');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVote = async (candidateId) => {
-    if (hasVoted) return alert('You have already cast your vote in this election.');
-    if (!selectedElection) return alert('Select an election first');
-    if (!window.confirm('Are you sure you want to cast your vote for this candidate? This action is permanent.')) return;
-    
-    try {
-      setLoading(true);
-      setLoadingCandidate(candidateId);
-      try {
-        showLoader('Sending transaction...');
-        const tx = await sendVoteOnChain(selectedElection._id || selectedElection.id, candidateId);
-        showToast('Transaction sent — awaiting confirmation', 'info');
-        await tx.wait?.();
-        showToast('✅ Transaction confirmed', 'success');
-        // Best-effort: notify server to sync DB
-        try { await postTxReceipt({ txHash: tx.hash, electionId: selectedElection._id || selectedElection.id, candidateId }); } catch (e) { /* ignore */ }
-        hideLoader();
-      } catch (onChainErr) {
-        hideLoader();
-        console.warn('On-chain vote failed, falling back to server:', onChainErr?.message || onChainErr);
-        showToast('On-chain failed — falling back to server', 'error');
-        await API.post('/votes/vote', { electionId: selectedElection._id || selectedElection.id, candidateId });
-        showToast('✅ Vote cast successfully (server)', 'success');
-      }
-      setHasVoted(true);
-      await fetchCandidates(selectedElection._id || selectedElection.id);
-    } catch (err) {
-      console.error(err);
-      setTxStatus(`❌ Voting failed: ${err.message || 'Unknown error'}`);
-      setTimeout(() => setTxStatus(null), 5000);
-    } finally {
-      setLoading(false);
-      setLoadingCandidate(null);
-    }
-  };
-
-  const cardVariants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
-  };
-  
-  // Helper to extract election title
-  const getElectionTitle = () => selectedElection?.title || selectedElection?.name || `Election ${selectedElection?._id || selectedElection?.id || 'N/A'}`;
-
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 border-b border-gray-700 pb-4">
-        <h2 className="text-3xl font-extrabold text-white tracking-wide">
-          🗳️ Candidates for <span className="text-sky-400">{getElectionTitle()}</span>
-        </h2>
-        <div className="flex items-center gap-4 mt-4 md:mt-0">
-          {/* Election Selector - Styled for the dark theme */}
-          <select
-            value={selectedElection?._id || selectedElection?.id || ''}
-            onChange={(e) => {
-              const id = e.target.value;
-              const found = elections.find((ev) => (ev._id || ev.id) === id);
-              setSelectedElection(found || id);
-            }}
-            className="bg-gray-800 border border-gray-700 text-gray-200 px-4 py-2 rounded-xl shadow-md focus:ring-sky-500 focus:border-sky-500 appearance-none transition duration-150 cursor-pointer w-full md:w-auto"
-          >
-             <option value="" disabled className="text-gray-500 bg-gray-900">
-                Select an Election...
-            </option>
-            {(elections || []).map((ev) => (
-              <option key={ev._id || ev.id} value={ev._id || ev.id} className="bg-gray-900 text-white">
-                {ev.title || ev.name || `Election ${ev._id || ev.id}`}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <Toast message={toastMsg} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Election Overview */}
+        <section className="bg-gray-800 rounded-2xl p-6 border border-gray-700 shadow-lg">
+          <h2 className="text-xl font-bold text-sky-400 mb-4">Election Overview</h2>
+          {["active","upcoming","completed"].map(type => (
+            <div key={type}>
+              <h3 className="font-semibold text-white mb-2 capitalize">{type} Elections</h3>
+              <ul className="divide-y divide-gray-700">
+                {(Array.isArray(overview[type]) ? overview[type] : []).map(ev => (
+                  <li key={ev._id} className="py-2 flex flex-col md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <span className="font-bold text-sky-400">{ev.title}</span>
+                      <span className="ml-2 text-xs bg-sky-700 text-white px-2 py-1 rounded">{ev.type}</span>
+                      <span className="ml-2 text-xs text-gray-400">{type==="completed" ? `Ended: ${ev.end}` : `${ev.start} - ${ev.end}`}</span>
+                    </div>
+                    <span className={`ml-2 px-2 py-1 rounded-full text-xs font-bold ${type==="active"?"bg-emerald-700":type==="upcoming"?"bg-yellow-700":"bg-gray-700"} text-white`}>
+                      {type.charAt(0).toUpperCase()+type.slice(1)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
 
-      {/* Status Bar */}
-      {loading && (
-        <p className="text-sky-400 font-semibold mb-4 flex items-center gap-2">
-           <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> 
-           Processing... please wait.
-        </p>
-      )}
+        {/* Live Results */}
+        <section className="bg-gray-800 rounded-2xl p-6 border border-gray-700 shadow-lg">
+          <h2 className="text-xl font-bold text-sky-400 mb-4">Live Results</h2>
+          {results ? <>
+            <VotePieChart data={results.chartData||[]} />
+            <VoteBarChart data={results.chartData||[]} />
+          </> : <div className="text-gray-400">No results data yet.</div>}
+        </section>
 
-      {txStatus && (
-        <div className={`mb-4 p-3 rounded-xl text-sm font-medium border ${txStatus.startsWith('❌') ? 'bg-red-900/40 border-red-600 text-red-300' : 'bg-sky-900/40 border-sky-600 text-sky-300'}`}>
-          {txStatus}
-        </div>
-      )}
-      
-      {/* Voted Banner */}
-      {hasVoted && (
-          <div className="mb-6 p-4 rounded-xl bg-green-900/40 border border-green-600 text-green-300 font-semibold shadow-inner flex items-center gap-3">
-              <span className="text-2xl">✅</span>
-              <span>You have already cast your irreversible vote in this election.</span>
+        {/* Voter Stats */}
+        <section className="bg-gray-800 rounded-2xl p-6 border border-gray-700 shadow-lg">
+          <h2 className="text-xl font-bold text-sky-400 mb-4">Voter Statistics</h2>
+          <div className="text-white space-y-2">
+            <p>Total Registered: {voterStats.total}</p>
+            <p>Votes Cast: {voterStats.cast}</p>
+            <p>Turnout Rate: {voterStats.rate}%</p>
           </div>
+        </section>
+
+        
+
+        {/* Blockchain Status */}
+        <section className="bg-gray-800 rounded-2xl p-6 border border-gray-700 shadow-lg">
+          <h2 className="text-xl font-bold text-sky-400 mb-4">Blockchain Status</h2>
+          <div className="text-white space-y-2">
+            <p>Blocks: {blockchain.blocks}</p>
+            <p>Transactions: {blockchain.txCount}</p>
+            <p>Latest Hash: <span className="text-xs text-emerald-400">{blockchain.latestHash}</span></p>
+            <p>Last Updated: {blockchain.latestTime}</p>
+          </div>
+        </section>
+
+        {/* Audit & Logs */}
+        <section className="bg-gray-800 rounded-2xl p-6 border border-gray-700 shadow-lg">
+          <h2 className="text-xl font-bold text-sky-400 mb-4">Audit & Security Logs</h2>
+          <ul className="max-h-48 overflow-y-auto divide-y divide-gray-700 text-sm">
+            {logs.map((log,i)=>(
+              <li key={i} className="py-2 text-gray-300">
+                <span className="text-sky-400">[{log.timestamp}]</span> {log.action}
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {/* User Info */}
+        <section className="bg-gray-800 rounded-2xl p-6 border border-gray-700 shadow-lg">
+          <h2 className="text-xl font-bold text-sky-400 mb-4">Logged User</h2>
+          {user ? (
+            <div className="text-white">
+              <p><strong>Name:</strong> {user.fullName}</p>
+              <p><strong>Email:</strong> {user.email}</p>
+              <p><strong>Role:</strong> {user.role}</p>
+            </div>
+          ) : <p className="text-gray-400">No user info available.</p>}
+        </section>
+
+        {/* Admin Tools */}
+        <section className="bg-gray-800 rounded-2xl p-6 border border-gray-700 shadow-lg">
+          <h2 className="text-xl font-bold text-sky-400 mb-4">Administrative Tools</h2>
+          <div className="flex gap-3 flex-wrap">
+            <button onClick={fetchAllDashboardData} className="bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-xl">Refresh Data</button>
+            <button onClick={logout} className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-xl">Logout</button>
+          </div>
+        </section>
+
+        {/* Analytics */}
+        <section className="bg-gray-800 rounded-2xl p-6 border border-gray-700 shadow-lg">
+          <h2 className="text-xl font-bold text-sky-400 mb-4">Analytics Overview</h2>
+          {results ? <VoteBarChart data={results.chartData||[]} /> : <div className="text-gray-400">No analytics data available.</div>}
+        </section>
+
+        {/* Notifications */}
+        <section className="bg-gray-800 rounded-2xl p-6 border border-gray-700 shadow-lg">
+          <h2 className="text-xl font-bold text-sky-400 mb-4">Notifications</h2>
+          <ul className="max-h-48 overflow-y-auto divide-y divide-gray-700 text-sm">
+            {notifications.map((n,i)=>(
+              <li key={i} className="py-2 text-gray-300 flex justify-between">
+                <span>{n.message}</span>
+                <span className="text-xs text-gray-500">{n.time}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+
+      {loading && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="text-sky-400 text-xl font-bold animate-pulse">Loading dashboard...</div>
+        </div>
       )}
-
-
-      {/* Candidate Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-        {candidates.map((c, index) => (
-          <motion.div
-            key={c._id || c.id}
-            className="bg-gray-800 border border-gray-700 shadow-xl shadow-black/50 rounded-2xl p-6 flex flex-col items-center text-center transition-all duration-300"
-            variants={cardVariants}
-            initial="hidden"
-            animate="visible"
-            transition={{ delay: index * 0.1 }}
-            whileHover={{ scale: 1.03, y: -2, boxShadow: "0 8px 10px rgba(0, 0, 0, 0.3)" }}
-          >
-            {/* Candidate Name */}
-            <h3 className="text-2xl font-bold mb-3 text-sky-400 tracking-wide">{c.name}</h3>
-            {/* Votes (Subtle) */}
-            <p className="text-gray-500 text-sm mb-4 italic">Votes: <span className="font-mono">{c.votes}</span></p>
-            {/* Vote Button */}
-            <button
-              onClick={() => handleVote(c._id || c.id)}
-              disabled={(loading && String(loadingCandidate) === String(c._id || c.id)) || !!hasVoted}
-              className={`w-full mt-2 font-bold uppercase tracking-wider px-5 py-3 rounded-xl transition-all duration-200 shadow-lg ${
-                ((loading && String(loadingCandidate) === String(c._id || c.id)) || hasVoted) 
-                ? 'bg-gray-600 text-gray-300 cursor-not-allowed shadow-none' 
-                : 'bg-sky-500 text-white hover:bg-sky-400 shadow-sky-500/50'
-              }`}
-            >
-              {(loading && String(loadingCandidate) === String(c._id || c.id)) ? 'Casting...' : hasVoted ? 'Voted' : 'Cast Your Vote'}
-            </button>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Admin/Action Bar at the bottom */}
-      <div className="mt-10 p-4 border-t border-gray-700/50 flex flex-wrap items-center gap-4 bg-gray-800/50 rounded-xl">
-        {user?.role?.toLowerCase() === 'admin' && (
-            <button 
-                onClick={addCandidate} 
-                disabled={loading}
-                className="bg-emerald-600 text-white px-5 py-2 rounded-xl font-semibold hover:bg-emerald-500 transition disabled:bg-gray-600 disabled:cursor-not-allowed"
-            >
-                + Add Candidate (Admin)
-            </button>
-        )}
-        {!selectedElection && <span className="text-sm text-yellow-400">Please select an election from the dropdown.</span>}
-      </div>
     </DashboardLayout>
   );
 };

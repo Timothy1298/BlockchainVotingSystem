@@ -1,15 +1,25 @@
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
+const { mandatory } = require('../middleware/auth');
 const roles = require('../middleware/roles');
 const electionController = require('../controllers/electionController');
 
-router.get('/', auth, electionController.list);
-router.post('/', auth, roles(['admin']), electionController.create);
-router.get('/:id', auth, electionController.get);
-router.post('/:id/candidates', auth, roles(['admin']), electionController.addCandidate);
-router.delete('/:id', auth, roles(['admin']), electionController.delete);
-router.put('/:id', auth, roles(['admin']), electionController.update);
-router.get('/:id/candidates', auth, electionController.getCandidatesByElection);
+router.use(mandatory);
+
+// List all elections
+router.get('/', electionController.list);
+
+// Create a new election (admin only)
+router.post('/', roles(['admin']), electionController.create);
+
+// Dashboard overview endpoint
+router.get('/overview', electionController.overview); // <-- make sure this method exists in electionController
+
+// Election-specific routes
+router.get('/:id', electionController.get);
+router.post('/:id/candidates', roles(['admin']), electionController.addCandidate);
+router.delete('/:id', roles(['admin']), electionController.delete);
+router.put('/:id', roles(['admin']), electionController.update);
+router.get('/:id/candidates', electionController.getCandidatesByElection);
 
 module.exports = router;

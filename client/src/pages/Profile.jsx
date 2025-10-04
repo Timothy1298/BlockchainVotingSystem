@@ -1,5 +1,5 @@
 import React, { useContext, useState } from 'react';
-import { DashboardLayout } from '../components/Layout';
+import {DashboardLayout} from '../layouts/DashboardLayout';
 import { AuthContext } from '../context/AuthContext';
 import { useGlobalUI } from '../components/GloabalUI.jsx';
 

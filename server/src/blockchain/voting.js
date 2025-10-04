@@ -99,7 +99,7 @@ try {
 
   // Setup provider + contract (Hardhat default)
   const rpc = process.env.BLOCKCHAIN_RPC || 'http://127.0.0.1:8545';
-  const provider = new ethers.providers.JsonRpcProvider(rpc);
+  const provider = new ethers.JsonRpcProvider(rpc);
     const signer = provider.getSigner ? provider.getSigner() : provider;
 
     const contractAddress = process.env.VOTING_CONTRACT_ADDRESS;

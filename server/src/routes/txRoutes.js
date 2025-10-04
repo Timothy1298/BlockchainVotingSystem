@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { postTxReceipt } = require('../controllers/configController');
-const auth = require('../middleware/auth');
+const { mandatory } = require('../middleware/auth');
 
-router.post('/receipt', auth.optional, postTxReceipt);
+router.use(mandatory);
+router.post('/receipt', postTxReceipt);
 
 module.exports = router;

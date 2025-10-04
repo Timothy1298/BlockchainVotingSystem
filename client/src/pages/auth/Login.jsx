@@ -22,17 +22,19 @@ const Login = () => {
   const handleSubmit = (e) => {
     e.preventDefault();
     setLoading(true);
-    login(formData.email, formData.password)
+  login(formData.email, formData.password)
       .then(() => {
         setLoading(false);
-        setMessage({ type: 'success', text: 'Login successful — redirecting...' });
-        setTimeout(() => navigate('/dashboard'), 1000);
+  setMessage({ type: 'success', text: 'Login successful — redirecting...' });
+  setTimeout(() => setMessage(null), 40000); // message lasts 40s
+  setTimeout(() => navigate('/dashboard'), 1000);
       })
       .catch((err) => {
         setLoading(false);
         console.error(err);
         const msg = err?.response?.data?.message || (err?.response?.data?.errors && err.response.data.errors.map(e=>e.msg).join(', ')) || 'Login failed';
-        setMessage({ type: 'error', text: msg });
+  setMessage({ type: 'error', text: msg });
+  setTimeout(() => setMessage(null), 40000); // message lasts 40s
       });
   };
 
@@ -96,7 +98,14 @@ const Login = () => {
           
           {/* Submit Button - Styling inherited from SubmitButton component */}
           <SubmitButton text="Login to Dashboard" loading={loading} />
-          
+
+          {/* Error/Success Message */}
+          {message && (
+            <div className={`mt-2 text-center px-4 py-2 rounded ${message.type === 'error' ? 'bg-red-700 text-white' : 'bg-green-700 text-white'}`}>
+              {message.text}
+            </div>
+          )}
+
           {/* Register Link */}
           <p className="text-sm text-gray-400 mt-6 text-center">
             Don’t have an account?{" "}

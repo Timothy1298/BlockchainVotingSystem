@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { DashboardLayout } from '../components/Layout';
+import {DashboardLayout} from '../layouts/DashboardLayout';
 import { AuthContext } from '../context/AuthContext';
 import API from '../services/api';
 import { useNavigate } from 'react-router-dom';
@@ -29,19 +29,77 @@ export default function Elections() {
     } finally { hideLoader(); }
   };
 
-  const createElection = async () => {
-  if (!user || user.role?.toLowerCase() !== 'admin') return showToast('Admin only', 'error');
-    const title = window.prompt('Enter election title');
-    if (!title) return;
+
+  // Admin election creation form state
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const ELECTION_TYPES = [
+    'Student Government (Union) Elections',
+    'Faculty/Departmental Representative Elections',
+    'Club/Society Elections',
+    'Hostel/Accommodation Committee Elections',
+    'Special Referendums (e.g., constitutional amendments, policy votes)'
+  ];
+  const SEATS = [
+    'Student President',
+    'Vice President',
+    'Secretary General',
+    'Treasurer/Finance Secretary',
+    'Academic Affairs Secretary',
+    'Sports/Games Secretary',
+    'Gender/Equity Representative',
+    'Faculty/School Representatives',
+    'Hostel/Accommodation Representative',
+    'Clubs/Societies Leaders'
+  ];
+  const [form, setForm] = useState({
+    title: '',
+    electionType: '',
+    seats: [],
+    description: '',
+    startsAt: '',
+    endsAt: '',
+    venue: ''
+  });
+  const handleFormChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    if (name === 'seats') {
+      let newSeats = [...form.seats];
+      if (checked) {
+        newSeats.push(value);
+      } else {
+        newSeats = newSeats.filter(s => s !== value);
+      }
+      setForm({ ...form, seats: newSeats });
+    } else {
+      setForm({ ...form, [name]: value });
+    }
+  };
+  const resetForm = () => setForm({ title: '', electionType: '', seats: [], description: '', startsAt: '', endsAt: '', venue: '' });
+  const createElection = async (e) => {
+    e.preventDefault();
+    if (!user || user.role?.toLowerCase() !== 'admin') return showToast('Admin only', 'error');
+    if (!form.title || !form.electionType || form.seats.some(s => !s.trim())) {
+      showToast('Title, type, and all seats are required', 'error');
+      return;
+    }
     try {
-  showLoader('Creating election...');
-      await API.post('/elections', { title });
+      showLoader('Creating election...');
+      await API.post('/elections', {
+        title: form.title,
+        electionType: form.electionType,
+        seats: form.seats.filter(s => s.trim()),
+        description: form.description,
+        startsAt: form.startsAt || undefined,
+        endsAt: form.endsAt || undefined
+      });
       await fetchElections();
       showToast('Election created successfully!', 'success');
+      setShowCreateForm(false);
+      resetForm();
     } catch (err) {
       console.error(err);
       showToast('Failed to create election', 'error');
-    } finally { setLoading(false); }
+    } finally { setLoading(false); hideLoader(); }
   };
 
   const deleteElection = async (id) => {
@@ -59,77 +117,129 @@ export default function Elections() {
   };
 
   return (
-    <DashboardLayout title="Elections">
-      <div className="max-w-4xl mx-auto text-white p-4">
-        {/* Header and Actions */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 border-b border-gray-700/50 pb-4">
-          <h1 className="text-3xl font-extrabold tracking-wider">
-            Elections Management
-          </h1>
-          <div className="flex items-center gap-3 mt-3 sm:mt-0">
-            {/* Create Election Button - Highlighted for Admin */}
-            {user?.role?.toLowerCase() === 'admin' && (
-              <button 
-                onClick={createElection} 
-                disabled={loading}
-                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold transition shadow-md disabled:bg-gray-600"
-              >
-                + Create Election
-              </button>
-            )}
-            {/* Refresh Button - Subtle background for utility */}
-            <button 
-              onClick={fetchElections} 
+    <DashboardLayout>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 border-b border-gray-700 pb-4">
+        <h2 className="text-3xl font-extrabold text-white tracking-wide">
+          🗳️ Elections Management
+        </h2>
+        <div className="flex items-center gap-4 mt-4 md:mt-0">
+          {user?.role?.toLowerCase() === 'admin' && (
+            <button
+              onClick={() => setShowCreateForm((v) => !v)}
               disabled={loading}
-              className="px-4 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 transition disabled:bg-gray-600"
+              className="bg-emerald-600 text-white px-5 py-2 rounded-xl font-semibold hover:bg-emerald-500 transition disabled:bg-gray-600 disabled:cursor-not-allowed"
             >
-              🔄 Refresh
+              {showCreateForm ? 'Cancel' : '+ Create Election'}
             </button>
-          </div>
+          )}
+          <button 
+            onClick={fetchElections} 
+            disabled={loading}
+            className="px-4 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 transition disabled:bg-gray-600"
+          >
+            🔄 Refresh
+          </button>
         </div>
-
-        {/* Loading Indicator */}
-        {loading && <p className="text-sky-400 font-semibold mb-4">Loading elections...</p>}
-        {!loading && elections.length === 0 && <p className="text-gray-400 text-lg py-8 text-center bg-gray-800/50 rounded-xl">No elections found.</p>}
-
-        {/* Elections List */}
-        <ul className="space-y-4">
-          {elections.map((ev) => (
-            <li 
-              key={ev._id || ev.id} 
-              // List Item Styling: Dark card, subtle shadow, border, hover effect
-              className="p-5 bg-gray-800 border border-gray-700 rounded-xl shadow-lg flex flex-col md:flex-row justify-between items-start md:items-center transition duration-200 hover:shadow-sky-900/40"
-            >
-              <div className="mb-3 md:mb-0">
-                {/* Title */}
-                <div className="text-xl font-bold text-sky-400">{ev.title || ev.name || `Election ${ev._id || ev.id}`}</div>
-                {/* Description/Details */}
-                <div className="text-sm text-gray-400 mt-1 italic">{ev.description || 'Blockchain-secured vote.'}</div>
-                {/* ID (Subtle) */}
-                <div className="text-xs text-gray-500 mt-1 font-mono">ID: {String(ev._id || ev.id).substring(0, 10)}...</div>
-              </div>
-              <div className="flex items-center gap-3">
-                {/* Open Button (Primary action for all users) */}
-                <button 
-                  onClick={() => navigate('/dashboard', { state: { electionId: ev._id || ev.id }})} 
-                  className="px-5 py-2 bg-sky-500 hover:bg-sky-400 text-white font-semibold rounded-xl transition shadow-md"
-                >
-                  View Candidates
-                </button>
-                {/* Admin Delete Button (High contrast for danger) */}
-                {user?.role?.toLowerCase() === 'admin' && (
-                  <button 
-                    onClick={() => deleteElection(ev._id || ev.id)} 
-                    className="px-5 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl transition shadow-md"
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
       </div>
+
+
+      {/* Admin Create Election Form */}
+      {showCreateForm && user?.role?.toLowerCase() === 'admin' && (
+        <form onSubmit={createElection} className="bg-gray-900 border border-gray-700 rounded-xl p-6 mb-8 mt-2 space-y-4 shadow-lg">
+          <h2 className="text-2xl font-bold text-sky-400 mb-2">Create New Election</h2>
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <label className="block text-gray-300 mb-1">Title *</label>
+              <input name="title" value={form.title} onChange={handleFormChange} className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-600 text-white" required />
+            </div>
+            <div className="flex-1">
+              <label className="block text-gray-300 mb-1">Election Type *</label>
+              <select name="electionType" value={form.electionType} onChange={handleFormChange} className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-600 text-white" required>
+                <option value="" disabled>Select election type</option>
+                {ELECTION_TYPES.map(type => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-gray-300 mb-1">Seats/Positions *</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+              {SEATS.map(seat => (
+                <label key={seat} className="flex items-center gap-2 bg-gray-800 px-3 py-2 rounded border border-gray-700">
+                  <input
+                    type="checkbox"
+                    name="seats"
+                    value={seat}
+                    checked={form.seats.includes(seat)}
+                    onChange={handleFormChange}
+                  />
+                  <span>{seat}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <label className="block text-gray-300 mb-1">Description</label>
+              <input name="description" value={form.description} onChange={handleFormChange} className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-600 text-white" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-gray-300 mb-1">Venue</label>
+              <input name="venue" value={form.venue} onChange={handleFormChange} className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-600 text-white" />
+            </div>
+          </div>
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <label className="block text-gray-300 mb-1">Start Date</label>
+              <input name="startsAt" type="datetime-local" value={form.startsAt} onChange={handleFormChange} className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-600 text-white" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-gray-300 mb-1">End Date</label>
+              <input name="endsAt" type="datetime-local" value={form.endsAt} onChange={handleFormChange} className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-600 text-white" />
+            </div>
+          </div>
+          <div className="pt-2">
+            <button type="submit" className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-md">Create Election</button>
+          </div>
+        </form>
+      )}
+
+      {/* Loading Indicator */}
+      {loading && <p className="text-sky-400 font-semibold mb-4">Loading elections...</p>}
+      {!loading && elections.length === 0 && <p className="text-gray-400 text-lg py-8 text-center bg-gray-800/50 rounded-xl">No elections found.</p>}
+
+      {/* Elections List */}
+      <ul className="space-y-4">
+        {elections.map((ev, index) => (
+          <li 
+            key={ev._id || ev.id} 
+            className="p-5 bg-gray-800 border border-gray-700 rounded-xl shadow-lg flex flex-col md:flex-row justify-between items-start md:items-center transition duration-200 hover:shadow-sky-900/40"
+          >
+            <div className="mb-3 md:mb-0">
+              <div className="text-xl font-bold text-sky-400">{ev.title || ev.name || `Election ${ev._id || ev.id}`}</div>
+              <div className="text-sm text-gray-400 mt-1 italic">{ev.description || 'Blockchain-secured vote.'}</div>
+              <div className="text-xs text-gray-500 mt-1 font-mono">ID: {String(ev._id || ev.id).substring(0, 10)}...</div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => navigate('/dashboard', { state: { electionId: ev._id || ev.id }})} 
+                className="px-5 py-2 bg-sky-500 hover:bg-sky-400 text-white font-semibold rounded-xl transition shadow-md"
+              >
+                View Candidates
+              </button>
+              {user?.role?.toLowerCase() === 'admin' && (
+                <button 
+                  onClick={() => deleteElection(ev._id || ev.id)} 
+                  className="px-5 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl transition shadow-md"
+                >
+                  Delete
+                </button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
     </DashboardLayout>
   );
 }
