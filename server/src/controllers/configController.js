@@ -3,9 +3,11 @@ const AuditLog = require('../models/AuditLog');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const fs = require('fs');
+const config = require('../config');
+const logger = require('../utils/logger');
 
 module.exports.listRoles = async (req, res) => {
-  res.json(['Super Admin', 'Admin', 'Election Manager', 'Observer']);
+  return res.success(['Super Admin', 'Admin', 'Election Manager', 'Observer']);
 };
 
 module.exports.setRole = async (req, res) => {
@@ -30,7 +32,7 @@ module.exports.exportAuditLogs = async (req, res) => {
 
 module.exports.listNotifications = async (req, res) => {
   const notifications = await Notification.find().sort({ createdAt: -1 });
-  res.json(notifications);
+  return res.success(notifications);
 };
 
 module.exports.setNotificationSettings = async (req, res) => {
@@ -103,13 +105,14 @@ module.exports.getElectionSettings = async (req, res) => {
 };
 exports.getConfig = async (req, res) => {
   try {
-    const config = {
-      votingContractAddress: process.env.VOTING_CONTRACT_ADDRESS || null,
-      blockchainMock: process.env.BLOCKCHAIN_MOCK === 'true' || false,
+    const out = {
+      votingContractAddress: config.votingContractAddress || null,
+      blockchainMock: config.blockchainMock || false,
     };
-    res.json(config);
+    return res.success(out);
   } catch (err) {
-    res.status(500).json({ message: 'Error reading config', error: err.message });
+    logger.error('Error returning config: %s', err?.message || err);
+    return res.error(500, 'Error reading config', 3001, { error: err?.message });
   }
 };
 
@@ -128,7 +131,7 @@ exports.postTxReceipt = async (req, res) => {
     if (!election) return res.status(404).json({ message: 'Election not found' });
 
     const voterIdentifier = voterId || req.user?.id || (req.body.voterAddress) || (req.headers['x-forwarded-for'] || req.ip || '').toString();
-    if (election.voters.includes(String(voterIdentifier))) return res.status(400).json({ message: 'Voter already recorded' });
+  if (election.voters.includes(String(voterIdentifier))) return res.error(400, 'Voter already recorded', 3002);
 
     // Find candidate and increment
     const candidate = election.candidates.id ? election.candidates.id(candidateId) : election.candidates.find(c => String(c._id) === String(candidateId) || String(c.id) === String(candidateId));
@@ -137,8 +140,9 @@ exports.postTxReceipt = async (req, res) => {
     election.voters.push(String(voterIdentifier));
     await election.save();
 
-    res.json({ message: 'DB synced', txHash });
+    return res.success({ txHash }, 'DB synced');
   } catch (err) {
-    res.status(500).json({ message: 'Error processing tx receipt', error: err.message });
+    logger.error('Error processing tx receipt: %s', err?.message || err);
+    return res.error(500, 'Error processing tx receipt', 3000, { error: err?.message });
   }
 };

@@ -1,0 +1,214 @@
+openapi: 3.0.3
+info:
+  title: Blockchain Voting System API
+  version: '1.0.0'
+  description: Full OpenAPI spec (generated) for the Voting backend.
+servers:
+  - url: /api
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        errorCode:
+          type: string
+    AuthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+            refreshToken:
+              type: string
+    Login:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        fullName:
+          type: string
+    Vote:
+      type: object
+      required: [electionId, candidateId]
+      properties:
+        electionId:
+          type: string
+        candidateId:
+          type: string
+    Candidate:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        seat:
+          type: string
+        voteCount:
+          type: integer
+    Election:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        startsAt:
+          type: integer
+        endsAt:
+          type: integer
+        candidateIds:
+          type: array
+          items:
+            type: integer
+
+paths:
+  /auth/login:
+    post:
+      summary: Login and receive JWT + refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/register:
+    post:
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName: { type: string }
+                email: { type: string }
+                password: { type: string }
+      responses:
+        '201': { description: Created }
+
+  /votes/candidates:
+    get:
+      summary: List candidates (requires auth)
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: List of candidates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Candidate'
+
+  /votes/vote:
+    post:
+      summary: Cast a vote
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Vote'
+      responses:
+        '200': { description: Vote accepted }
+        '409': { description: Already voted }
+
+  /elections:
+    get:
+      summary: List elections (requires auth)
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: List of elections
+    post:
+      summary: Create election (admin)
+      security: [{ BearerAuth: [] }]
+      responses:
+        '201': { description: Created }
+
+  /elections/{id}:
+    get:
+      summary: Get election by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Election object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Election'
+
+  /config:
+    get:
+      summary: Get app/system config (requires auth)
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+
+  /blockchain/status:
+    get:
+      summary: Get blockchain status (requires auth)
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+
+  /metrics:
+    get:
+      summary: Prometheus-style metrics for the server
+      responses:
+        '200':
+          description: Metrics text/plain
+          content:
+            text/plain:
+              schema:
+                type: string
+
+security:
+  - BearerAuth: []

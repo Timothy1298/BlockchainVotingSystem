@@ -58,11 +58,17 @@ export const sendVoteOnChain = async (electionId, candidateId) => {
   // Try to obtain the contract address from the server to avoid requiring a client-side env var
   let address = null;
   try {
-    const cfg = await fetch('/api/config').then(r => r.json()).catch(() => null);
+    // FIX: Use the token-attaching API instance instead of native fetch
+    const res = await API.get('/config');
+    const cfg = res.data;
+    
     address = cfg?.votingContractAddress || import.meta.env.VITE_VOTING_CONTRACT_ADDRESS || window?.VITE_VOTING_CONTRACT_ADDRESS;
   } catch (err) {
+    // If the authenticated API call fails, fall back to client environment variables
+    console.warn("Failed to fetch /api/config with token. Falling back to client environment variable.", err);
     address = import.meta.env.VITE_VOTING_CONTRACT_ADDRESS || window?.VITE_VOTING_CONTRACT_ADDRESS;
   }
+  
   if (!address) throw new Error('VOTING_CONTRACT_ADDRESS is not set (server returned none and no client env var)');
 
   // Minimal ABI supporting single-election and multi-election vote signatures
@@ -79,7 +85,6 @@ export const sendVoteOnChain = async (electionId, candidateId) => {
     // will throw if function not present in the interface
     contract.interface.getFunction(sig);
     const tx = await contract[sig](electionId, candidateId);
-    await tx.wait();
     return tx;
   } catch (err) {
     // Try single-arg vote(candidateId)
@@ -87,7 +92,6 @@ export const sendVoteOnChain = async (electionId, candidateId) => {
       const sig1 = 'vote(uint256)';
       contract.interface.getFunction(sig1);
       const tx = await contract[sig1](candidateId);
-      await tx.wait();
       return tx;
     } catch (err2) {
       throw new Error('Contract does not expose a compatible vote function');
@@ -98,11 +102,10 @@ export const sendVoteOnChain = async (electionId, candidateId) => {
 // Best-effort: notify server of a client-signed tx so server can sync DB (if available)
 export const postTxReceipt = async ({ txHash, electionId, candidateId, voterId }) => {
   try {
-    await fetch('/api/tx/receipt', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ txHash, electionId, candidateId, voterId })
-    });
+    // FIX: Use the token-attaching API instance instead of native fetch
+    await API.post('/tx/receipt', { txHash, electionId, candidateId, voterId });
   } catch (err) {
     // ignore errors; server-side sync is best-effort
+    console.warn("Error posting TX receipt to server:", err);
   }
 };

@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useState } from 'react';
 import {DashboardLayout} from '../layouts/DashboardLayout';
 import { AuthContext } from '../context/AuthContext';
 import API from '../services/api';
+import ElectionWizard from '../components/ElectionWizard';
 import { useNavigate } from 'react-router-dom';
 import { useGlobalUI } from '../components/GloabalUI.jsx';
 
@@ -143,66 +144,11 @@ export default function Elections() {
       </div>
 
 
-      {/* Admin Create Election Form */}
+      {/* Admin Create Election Wizard (replaces inline create form) */}
       {showCreateForm && user?.role?.toLowerCase() === 'admin' && (
-        <form onSubmit={createElection} className="bg-gray-900 border border-gray-700 rounded-xl p-6 mb-8 mt-2 space-y-4 shadow-lg">
-          <h2 className="text-2xl font-bold text-sky-400 mb-2">Create New Election</h2>
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <label className="block text-gray-300 mb-1">Title *</label>
-              <input name="title" value={form.title} onChange={handleFormChange} className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-600 text-white" required />
-            </div>
-            <div className="flex-1">
-              <label className="block text-gray-300 mb-1">Election Type *</label>
-              <select name="electionType" value={form.electionType} onChange={handleFormChange} className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-600 text-white" required>
-                <option value="" disabled>Select election type</option>
-                {ELECTION_TYPES.map(type => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-gray-300 mb-1">Seats/Positions *</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-              {SEATS.map(seat => (
-                <label key={seat} className="flex items-center gap-2 bg-gray-800 px-3 py-2 rounded border border-gray-700">
-                  <input
-                    type="checkbox"
-                    name="seats"
-                    value={seat}
-                    checked={form.seats.includes(seat)}
-                    onChange={handleFormChange}
-                  />
-                  <span>{seat}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <label className="block text-gray-300 mb-1">Description</label>
-              <input name="description" value={form.description} onChange={handleFormChange} className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-600 text-white" />
-            </div>
-            <div className="flex-1">
-              <label className="block text-gray-300 mb-1">Venue</label>
-              <input name="venue" value={form.venue} onChange={handleFormChange} className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-600 text-white" />
-            </div>
-          </div>
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <label className="block text-gray-300 mb-1">Start Date</label>
-              <input name="startsAt" type="datetime-local" value={form.startsAt} onChange={handleFormChange} className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-600 text-white" />
-            </div>
-            <div className="flex-1">
-              <label className="block text-gray-300 mb-1">End Date</label>
-              <input name="endsAt" type="datetime-local" value={form.endsAt} onChange={handleFormChange} className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-600 text-white" />
-            </div>
-          </div>
-          <div className="pt-2">
-            <button type="submit" className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-md">Create Election</button>
-          </div>
-        </form>
+        <div className="mb-8 mt-2">
+          <ElectionWizard onCreated={(res)=>{ fetchElections(); setShowCreateForm(false); showToast('Election created', 'success'); }} />
+        </div>
       )}
 
       {/* Loading Indicator */}

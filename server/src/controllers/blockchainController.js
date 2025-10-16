@@ -61,3 +61,34 @@ exports.updateStatus = async (req, res) => {
   await status.save();
   res.status(201).json(status);
 };
+
+// Return a preview of how an election would be represented on-chain
+exports.previewElection = async (req, res) => {
+  const electionId = req.params.id;
+  try {
+    if (process.env.SKIP_DB === 'true') {
+      // Mock preview
+      return res.json({
+        id: electionId,
+        chainElectionId: null,
+        seats: [{ name: 'Seat 1', index: 0, candidates: [{ name: 'Candidate A', chainCandidateId: 0 }] }],
+        note: 'SKIP_DB mode - this is a mock preview'
+      });
+    }
+
+    const Election = require('../models/Election');
+    const election = await Election.findById(electionId);
+    if (!election) return res.status(404).json({ message: 'Election not found' });
+
+    // Map seats to candidates and (if available) chainCandidateId
+    const seats = election.seats.map((s, idx) => ({
+      name: s,
+      index: idx,
+      candidates: (election.candidates || []).filter(c => c.seat === s).map((c, i) => ({ name: c.name, chainCandidateId: c.chainCandidateId ?? i }))
+    }));
+
+    res.json({ id: election._id, chainElectionId: election.chainElectionId || null, seats, title: election.title });
+  } catch (err) {
+    res.status(500).json({ message: 'Error generating preview', error: err.message });
+  }
+};

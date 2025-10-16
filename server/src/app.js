@@ -25,6 +25,14 @@ const candidateOverviewRoutes = require('./routes/candidateOverviewRoutes');
 const voterStatsRoutes = require('./routes/voterStatsRoutes');
 const alertRoutes = require('./routes/alertRoutes');
 
+const config = require('./config');
+const logger = require('./utils/logger');
+const responseMiddleware = require('./middleware/response');
+const requestLogger = require('./middleware/requestLogger');
+const swaggerUi = require('swagger-ui-express');
+const path = require('path');
+const metrics = require('./utils/metrics');
+
 const app = express();
 
 // CORS configuration
@@ -37,6 +45,10 @@ app.use(cors({
 
 app.use(express.json());
 
+// request logging and normalized responses
+app.use(requestLogger);
+app.use(responseMiddleware);
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use("/api/votes", voteRoutes);
@@ -47,6 +59,23 @@ app.use('/api/admin-profile', adminProfileRoutes);
 app.use('/api/results/overview', resultsOverviewRoutes); // dashboard expects this
 app.use('/api/results', resultsRoutes);
 app.use('/api/config', configRoutes);
+// Swagger UI (partial spec)
+try {
+  // Prefer YAML spec if present (more authorable), otherwise fall back to JSON
+  const yamlPath = path.join(__dirname, 'docs', 'openapi.yaml');
+  if (require('fs').existsSync(yamlPath)) {
+    const yaml = require('js-yaml');
+    const openapiYaml = yaml.load(require('fs').readFileSync(yamlPath, 'utf8'));
+    app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openapiYaml));
+    // also serve the raw YAML for downloads
+    app.get('/api/docs/openapi.yaml', (req, res) => res.sendFile(yamlPath));
+  } else {
+    const openapi = require('./docs/openapi.json');
+    app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openapi));
+  }
+} catch (e) {
+  logger.warn('Swagger docs not available: %s', e?.message || e);
+}
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/tx', txRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
@@ -63,9 +92,19 @@ app.use('/api/candidates/overview', candidateOverviewRoutes); // alias
 app.use('/api/alerts', alertRoutes);
 
 // Health check
-app.get('/api/health', (req, res) => res.json({ ok: true }));
+app.get('/api/health', (req, res) => {
+  const dbConnected = process.env.DB_CONNECTED === 'true' || config.skipDb === false;
+  const blockchainMock = process.env.BLOCKCHAIN_MOCK === 'true';
+  res.json({ success: true, data: { dbConnected, blockchainMock, env: process.env.NODE_ENV || 'development' }, message: 'health' });
+});
+
+// Basic Prometheus-style metrics endpoint
+app.get('/api/metrics', (req, res) => {
+  res.set('Content-Type', 'text/plain; version=0.0.4');
+  res.send(metrics.metricsText());
+});
 
 // Catch-all 404 (must be last)
-app.use((req, res) => res.status(404).json({ message: 'Not found' }));
+app.use((req, res) => res.error(404, 'Not found'));
 
 module.exports = app;

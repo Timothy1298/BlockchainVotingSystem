@@ -1,5 +1,17 @@
 {
+  "name": "blockchain-voting-system",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev"
+    ,"docker:up":"sudo docker-compose -f docker-compose.prod.yml up --build -d",
+    "docker:down":"sudo docker-compose -f docker-compose.prod.yml down",
+    "docker:logs":"sudo docker-compose -f docker-compose.prod.yml logs -f",
+    "docker:seed":"sudo docker-compose -f docker-compose.prod.yml run --rm seed"
+  },
   "dependencies": {
-    "faker": "^6.6.6"
+    "faker": "^6.6.6",
+    "concurrently": "^8.2.0"
   }
 }

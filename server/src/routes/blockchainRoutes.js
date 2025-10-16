@@ -17,6 +17,8 @@ router.post('/nodes', requireRole(['admin']), blockchainController.addNode);
 router.delete('/nodes/:nodeId', requireRole(['admin']), blockchainController.removeNode);
 // Transaction pool
 router.get('/tx-pool', requireRole(['admin']), blockchainController.txPool);
+// Election preview (map seats -> candidate placeholders or chain IDs)
+router.get('/elections/:id/preview', requireRole(['admin']), blockchainController.previewElection);
 // Encryption
 router.post('/encryption', requireRole(['admin']), blockchainController.setEncryption);
 // Fraud detection

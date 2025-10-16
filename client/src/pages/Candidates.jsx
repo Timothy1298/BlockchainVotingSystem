@@ -5,7 +5,7 @@ import { AuthContext } from '../context/AuthContext';
 import API from '../services/api';
 import CandidateCard from '../components/CandidateCard';
 import { sendVoteOnChain, postTxReceipt } from '../services/web3';
-import { useGlobalUI } from '../components/GloabalUI.jsx';
+import { useGlobalUI } from '../components/GloabalUI.jsx'; 
 
 export default function Candidates() {
   const { token, user, logout } = useContext(AuthContext);
@@ -21,29 +21,36 @@ export default function Candidates() {
   const [batchCandidates, setBatchCandidates] = useState(['']);
   const [batchLoading, setBatchLoading] = useState(false);
 
+  // UPDATED STATE: hasVoted is now an array of seat names the user has voted for
+  const [hasVoted, setHasVoted] = useState([]); 
+  const [txStatus, setTxStatus] = useState(null);
+
+  const { showLoader, hideLoader, showToast } = useGlobalUI();
+
   useEffect(() => {
     fetchElections();
   }, []);
 
   useEffect(() => {
-    if (selected) fetchCandidates(selected._id || selected.id || selected);
+    // Only fetch candidates when an election is selected
+    if (selected) {
+        const electionId = selected._id || selected.id || selected;
+        fetchCandidates(electionId);
+        checkHasVoted(electionId);
+    }
   }, [selected]);
 
-  useEffect(() => {
-    if (selected) checkHasVoted(selected._id || selected.id || selected);
-  }, [selected]);
 
-  const [hasVoted, setHasVoted] = useState(false);
-  const [txStatus, setTxStatus] = useState(null);
-
-  const { showLoader, hideLoader, showToast } = useGlobalUI();
   const checkHasVoted = async (electionId) => {
     try {
       const res = await API.get('/votes/hasVoted', { params: { electionId } });
-      setHasVoted(!!res.data?.hasVoted);
+      // UPDATED: Set hasVoted state to the array of seats the user has voted for (e.g., ["President", "Secretary"])
+      setHasVoted(res.data?.votedSeats || []);
     } catch (err) {
       if (err?.response?.status === 401) { logout?.(); return; }
       console.error('hasVoted check failed', err);
+      // Fallback to empty array on error
+      setHasVoted([]); 
     }
   };
 
@@ -74,9 +81,10 @@ export default function Candidates() {
 
   // Batch candidate creation logic
   const startBatchAdd = () => {
-    if (!selected) return alert('Pick an election');
-    if (user?.role?.toLowerCase() !== 'admin') return alert('Admin only');
-    if (!selected.seats || selected.seats.length === 0) return alert('No seats defined for this election.');
+    if (!selected) return showToast('Please select an election first.', 'warning');
+    if (user?.role?.toLowerCase() !== 'admin') return showToast('Access denied: This feature is Admin only.', 'error');
+    if (!selected.seats || selected.seats.length === 0) return showToast('No seats defined for this election.', 'warning');
+    
     setShowBatchForm(true);
     setBatchSeatIdx(0);
     setBatchCandidates(['']);
@@ -95,85 +103,131 @@ export default function Candidates() {
     const seat = selected.seats[batchSeatIdx];
     const names = batchCandidates.map(n => n.trim()).filter(Boolean);
     if (!seat || names.length === 0) {
-      alert('Enter at least one candidate for this seat.');
+      showToast('Enter at least one candidate for this seat.', 'warning');
       return;
     }
     setBatchLoading(true);
     try {
       for (const name of names) {
+        // Ensure the seat is passed to the backend
         await API.post(`/elections/${selected._id || selected.id}/candidates`, { name, seat });
       }
       await fetchCandidates(selected._id || selected.id);
+      
       // Move to next seat or finish
       if (batchSeatIdx < selected.seats.length - 1) {
         setBatchSeatIdx(batchSeatIdx + 1);
         setBatchCandidates(['']);
+        showToast(`Candidates added for ${seat}. Moving to the next seat...`, 'info');
       } else {
         setShowBatchForm(false);
         setBatchSeatIdx(0);
         setBatchCandidates(['']);
-        alert('All candidates added for all seats!');
+        showToast('✅ All candidates added for all seats!', 'success');
       }
     } catch (err) {
       if (err?.response?.status === 401) { logout?.(); return; }
       console.error(err);
-      alert('Failed to add candidate(s)');
+      showToast('❌ Failed to add candidate(s).', 'error');
     } finally {
       setBatchLoading(false);
     }
   };
 
-  const handleVote = async (candidate, electionId) => {
-    if (!selected) return alert('Select election');
-    if (hasVoted) return alert('You have already voted in this election');
-    if (!window.confirm('Cast vote? This action is irreversible on the blockchain.')) return;
+  const handleVote = async (candidate) => { 
+    const electionId = selected?._id || selected?.id;
+    const candidateSeat = candidate.seat; 
+
+    if (!selected) return showToast('Please select an election.', 'warning');
+    
+    // UI CHECK: Prevent network call if state already shows a vote for this seat
+    if (hasVoted.includes(candidateSeat)) {
+        return showToast(`🛑 You have already voted for the '${candidateSeat}' seat.`, 'error');
+    }
+
+    if (!window.confirm(`Cast vote for ${candidate.name} (${candidate.seat})? This action is irreversible on the blockchain.`)) return;
+    
+    // Show a global loader and transaction status immediately
+    showLoader('Processing Vote...');
+    setLoadingCandidate(candidate._id || candidate.id || candidate);
+    setLoading(true);
+
     try {
-      setLoading(true);
-      setLoadingCandidate(candidate._id || candidate.id || candidate);
-      // Try on-chain (user-signed) first
+      // --- ON-CHAIN VOTE ATTEMPT (Primary) ---
       try {
-        setTxStatus('Sending transaction...');
-        const tx = await sendVoteOnChain(selected._id || selected.id, candidate._id || candidate.id || candidate);
+        setTxStatus('Sending transaction to blockchain...');
+        const tx = await sendVoteOnChain(electionId, candidate._id || candidate.id || candidate);
         setTxStatus('Transaction sent, waiting for confirmation...');
         await tx.wait?.();
-        setTxStatus(`✅ Transaction confirmed (${tx.hash || 'confirmed'})`);
-        // notify server to sync DB (best-effort)
+        
+        // --- SUCCESS ---
+        // Post receipt to server (best-effort)
         try {
           await fetch('/api/tx/receipt', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ txHash: tx.hash, electionId: selected._id || selected.id, candidateId: candidate._id || candidate.id || candidate })
+            body: JSON.stringify({ txHash: tx.hash, electionId: electionId, candidateId: candidate._id || candidate.id || candidate })
           });
         } catch (err) {
           console.warn('Failed to post tx receipt to server', err);
         }
-        setTimeout(() => setTxStatus(null), 4000);
+
+        // Final UI updates
+        showToast(`✅ Vote confirmed for ${candidate.name}!`, 'success');
+        setTxStatus(`✅ Transaction confirmed (${tx.hash || 'confirmed'})`);
+        
       } catch (onChainErr) {
-        // Fallback to server API
+        // --- FALLBACK TO SERVER API VOTE (Secondary) ---
         console.warn('On-chain vote failed, falling back to server:', onChainErr?.message || onChainErr);
         setTxStatus('⚠️ On-chain failed, falling back to server vote...');
-        const res = await fetch('/api/votes/vote', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({ electionId: selected._id || selected.id, candidateId: candidate._id || candidate.id || candidate }),
+        
+        // Use API.post which includes the token automatically
+        const res = await API.post('/votes/vote', {
+          electionId: electionId, 
+          candidateId: candidate._id || candidate.id || candidate,
         });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.message || 'Server vote failed');
+
+        if (res.status === 200 || res.status === 201) {
+            showToast(`✅ Voted for ${candidate.name} via server fallback!`, 'success');
+            setTxStatus('✅ Voted via server fallback');
+        } else {
+             // Fallback catch for unexpected non-error failure
+             throw new Error(res.data?.message || 'Server vote failed with non-error status.');
         }
-        setTxStatus('✅ Voted via server fallback');
-        setTimeout(() => setTxStatus(null), 3000);
       }
-      await fetchCandidates(selected._id || selected.id);
-      await checkHasVoted(selected._id || selected.id);
+      
+      // --- FINALIZE: Update UI after a successful vote (either path) ---
+      // Crucial: These update the vote count and the 'hasVoted' status array
+      await fetchCandidates(electionId);
+      await checkHasVoted(electionId);
+
     } catch (err) {
-      console.error(err);
-      setTxStatus(`❌ Vote failed: ${err?.message || 'error'}`);
+      // --- FAILURE ---
+      console.error('Vote failed:', err);
+      // CAPTURE BACKEND ERROR MESSAGE for double-voting prevention
+      const errorMessage = err?.response?.data?.message || err?.message || 'Unknown vote error';
+      showToast(`❌ Vote failed: ${errorMessage}`, 'error');
+      setTxStatus(`❌ Vote failed: ${errorMessage}`);
+      
+    } finally { 
+      // Always run these to reset state
+      hideLoader(); 
+      setLoading(false); 
+      setLoadingCandidate(null);
+      // Keep the final status message for 5 seconds
       setTimeout(() => setTxStatus(null), 5000);
-    } finally { setLoading(false); setLoadingCandidate(null); }
+    }
   };
 
   // Helper to extract election title
   const getElectionTitle = () => selected?.title || selected?.name || `Election ${selected?._id || selected?.id || 'N/A'}`;
+
+  // Check if user and token are loaded (Addresses the 401 on initial load)
+  const isAuthReady = user !== null || token !== null;
+
+  if (!isAuthReady) {
+      // You might show a loading spinner or null until auth context loads
+      return <DashboardLayout><div className="text-white text-center p-10">Loading authentication status...</div></DashboardLayout>;
+  }
 
   return (
     <DashboardLayout>
@@ -203,6 +257,31 @@ export default function Candidates() {
           </select>
         </div>
       </div>
+      
+      {/* Display Voted Seats status (for user visibility) */}
+      {selected && hasVoted.length > 0 && (
+          <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-blue-900/40 border border-blue-700/80 text-white p-3 mb-6 rounded-lg shadow-inner flex items-center gap-3"
+          >
+              <span className="text-lg font-bold">Voted Seats:</span>
+              <span className="text-sm font-mono text-blue-300">{hasVoted.join(' | ')}</span>
+              <span className="text-xs text-blue-300 ml-auto">You cannot vote for these seats again.</span>
+          </motion.div>
+      )}
+
+      {/* Display Tx Status (below Voted Seats) */}
+      {txStatus && (
+        <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`p-3 mb-6 rounded-lg font-semibold ${txStatus.startsWith('✅') ? 'bg-emerald-700/80' : txStatus.startsWith('⚠️') ? 'bg-yellow-700/80' : 'bg-red-700/80'} text-white shadow-lg`}
+        >
+            {txStatus}
+        </motion.div>
+      )}
+
 
       {/* Batch candidate creation stepper form */}
       {showBatchForm && selected?.seats && selected.seats.length > 0 && (
@@ -247,16 +326,17 @@ export default function Candidates() {
               electionId={selected?._id || selected?.id}
               onVote={handleVote}
               loading={loading && String(loadingCandidate) === String(c._id || c.id || c)}
-              disabled={hasVoted}
+              // Disable the card if the user has already voted for this specific seat
+              disabled={hasVoted.includes(c.seat)} 
               onDelete={user?.role?.toLowerCase() === 'admin' ? async () => {
                 if (!window.confirm('Delete this candidate?')) return;
                 try {
                   setLoading(true);
                   await API.delete(`/elections/${selected._id || selected.id}/candidates/${c._id || c.id}`);
                   await fetchCandidates(selected._id || selected.id);
-                  alert('Candidate deleted.');
+                  showToast('✅ Candidate deleted successfully.', 'success');
                 } catch (err) {
-                  alert('Failed to delete candidate.');
+                  showToast('❌ Failed to delete candidate.', 'error');
                 } finally {
                   setLoading(false);
                 }

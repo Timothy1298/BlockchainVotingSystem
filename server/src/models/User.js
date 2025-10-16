@@ -13,6 +13,11 @@ const userSchema = new mongoose.Schema({
 	voteReceipt: { type: String },
 	qrCode: { type: String },
 	history: [{ type: String }],
+	// New fields for tracking
+	studentId: { type: String },
+	faculty: { type: String },
+	votingHistory: [{ election: { type: mongoose.Schema.Types.ObjectId, ref: 'Election' }, seats: [String], votedAt: Date }],
+	walletAddress: { type: String, lowercase: true },
 	receiptHash: { type: String },
 	createdAt: { type: Date, default: Date.now },
 	resetPasswordToken: String,

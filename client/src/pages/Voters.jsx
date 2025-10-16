@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useState } from 'react';
 import {DashboardLayout} from '../layouts/DashboardLayout';
 import { AuthContext } from '../context/AuthContext';
 import { motion } from 'framer-motion';
+import VoterEligibility from '../components/VoterEligibility';
 import { useGlobalUI } from '../components/GloabalUI.jsx';
 
 export default function Voters() {
@@ -78,6 +79,11 @@ export default function Voters() {
             🔄 Refresh List
           </button>
         </div>
+      </div>
+
+      {/* Voter Eligibility Tool */}
+      <div className="mb-6">
+        <VoterEligibility />
       </div>
 
       {/* Loading Indicator */}

@@ -15,6 +15,8 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, X } from 'lucide-react';
+import WalletBanner from './WalletBanner';
+import DebugAuth from './DebugAuth';
 
 // --- MOCK WalletConnectCard for component completeness ---
 // In a real project, this would be imported from './WalletConnectCard'
@@ -60,7 +62,9 @@ export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <motion.nav
+    <>
+      <WalletBanner />
+      <motion.nav
       initial={{ opacity: 0, y: -40 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, type: "spring", stiffness: 100 }}
@@ -105,6 +109,10 @@ export default function Navbar() {
           <div className="flex items-center gap-4">
             <div className="hidden md:block">
               <WalletConnectCard />
+            </div>
+
+            <div className="hidden lg:block">
+              <DebugAuth />
             </div>
 
             {/* Hamburger Button */}
@@ -155,5 +163,6 @@ export default function Navbar() {
         )}
       </AnimatePresence>
     </motion.nav>
+    </>
   );
 }

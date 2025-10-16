@@ -17,3 +17,40 @@ API.interceptors.request.use((config) => {
 });
 
 export default API;
+
+// ---- Convenience API helpers used by new frontend components ----
+export const getMetrics = async () => {
+  // Returns raw Prometheus text (server exposes /api/metrics)
+  const res = await API.get('/metrics', { responseType: 'text' });
+  return res.data;
+};
+
+export const getBlockchainStatus = async () => {
+  const res = await API.get('/blockchain/status');
+  return res.data;
+};
+
+export const createElection = async (payload) => {
+  // payload: { title, start, end, seats, candidates: [{name,label}] }
+  const res = await API.post('/elections', payload);
+  return res.data;
+};
+
+export const previewElectionOnChain = async (electionId) => {
+  const res = await API.get(`/blockchain/elections/${electionId}/preview`);
+  return res.data;
+};
+
+export const checkVoterEligibility = async (voterId) => {
+  const res = await API.get(`/voters/check?voterId=${encodeURIComponent(voterId)}`);
+  return res.data;
+};
+
+export const uploadEligibilityFile = async (file) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await API.post('/voters/upload-eligibility', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+};

@@ -4,7 +4,11 @@ const mongoose = require('mongoose');
 const CandidateSchema = new mongoose.Schema({
   name: { type: String, required: true },
   seat: { type: String, required: true }, // Position/seat the candidate is vying for
-  votes: { type: Number, default: 0 }
+  votes: { type: Number, default: 0 },
+  chainCandidateId: { type: Number },
+  bio: { type: String },
+  photoUrl: { type: String },
+  manifesto: { type: String }
 });
 
 // Track voters as an array of voter identifiers (userId or wallet address)
@@ -14,7 +18,10 @@ const ElectionSchema = new mongoose.Schema({
   electionType: { type: String, required: true }, // e.g. 'Student Union', 'Faculty Rep', etc.
   seats: [{ type: String, required: true }], // List of positions/seats for this election
   // Optional on-chain mapping (numeric id used in deployed contract)
-  chainId: { type: Number, required: false },
+  chainElectionId: { type: Number, required: false },
+  lastSyncedBlock: { type: Number, required: false },
+  statusHistory: [{ status: String, at: Date }],
+  turnoutPercentage: { type: Number, required: false },
   description: String,
   startsAt: Date,
   endsAt: Date,
