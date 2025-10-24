@@ -1,12 +1,14 @@
 // client/src/pages/auth/Login.jsx
-import React, { useState } from "react";
-import { InputField, SubmitButton } from "../../components/FormComponents";
+import React, { useState, useContext } from "react";
+import { InputField, SubmitButton } from "../../components/ui/forms";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
-import { AuthContext } from "../../context/AuthContext";
+import { AuthContext } from '../../contexts/auth';
+import { useGlobalUI } from '../../components/common';
 
 const Login = () => {
-  const { login } = React.useContext(AuthContext);
+  const { login } = useContext(AuthContext);
+  const { showToast } = useGlobalUI();
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -23,14 +25,17 @@ const Login = () => {
     e.preventDefault();
     setLoading(true);
     login(formData.email, formData.password)
-      .then(() => {
+      .then((res) => {
         setLoading(false);
         setMessage({
           type: "success",
           text: "Login successful — redirecting...",
         });
         setTimeout(() => setMessage(null), 40000); // message lasts 40s
-        setTimeout(() => navigate("/dashboard"), 1000);
+        const role = res?.user?.role || res?.data?.user?.role || res?.data?.role || res?.role;
+        const normalized = role ? String(role).toLowerCase() : '';
+        const target = normalized === 'admin' ? '/admin/dashboard' : '/voter/dashboard';
+        setTimeout(() => navigate(target), 800);
       })
       .catch((err) => {
         setLoading(false);

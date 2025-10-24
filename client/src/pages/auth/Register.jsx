@@ -1,12 +1,13 @@
 // client/src/pages/auth/Register.jsx
-import React, { useState } from "react";
-import { InputField, SelectField, SubmitButton } from "../../components/FormComponents";
+import React, { useState, useContext } from "react";
+import { InputField, SelectField, SubmitButton } from "../../components/ui/forms";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
-import { AuthContext } from "../../context/AuthContext";
-
+import { AuthContext } from '../../contexts/auth';
+import { useGlobalUI } from '../../components/common';
 const Register = () => {
-  const { register } = React.useContext(AuthContext);
+  const { register } = useContext(AuthContext);
+  const { showToast } = useGlobalUI();
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -16,7 +17,6 @@ const Register = () => {
     adminKey: ""
   });
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null); // { type, text }
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -29,7 +29,7 @@ const Register = () => {
     // Basic client-side validation
     if (formData.password !== formData.confirmPassword) {
       setLoading(false);
-      setMessage({ type: 'error', text: 'Passwords do not match' });
+      showToast('Passwords do not match', 'error');
       return;
     }
 
@@ -47,7 +47,7 @@ const Register = () => {
     register(payload)
       .then(() => {
         setLoading(false);
-        setMessage({ type: 'success', text: 'Registered successfully — redirecting to login...' });
+        showToast('Registered successfully — redirecting to login...', 'success');
         setTimeout(() => setMessage(null), 40000); // message lasts 40s
         setTimeout(() => navigate('/login'), 900);
       })
@@ -55,7 +55,7 @@ const Register = () => {
         setLoading(false);
         console.error('Registration error:', err);
         const msg = err?.response?.data?.message || (err?.response?.data?.errors && err.response.data.errors.map(e=>e.msg).join(', ')) || 'Registration failed';
-        setMessage({ type: 'error', text: msg });
+        showToast(msg, 'error');
         setTimeout(() => setMessage(null), 40000); // message lasts 40s
       });
   };
@@ -93,7 +93,7 @@ const Register = () => {
           <h2 className="text-3xl font-extrabold text-white text-center mb-6 border-b border-gray-700/50 pb-3">
             Create Your Account
           </h2>
-
+    
           {/* Form Fields - using the enhanced components (assumed styling) */}
           <InputField label="Full Name" name="fullName" value={formData.fullName} onChange={handleChange} />
           <InputField label="Email Address" name="email" type="email" value={formData.email} onChange={handleChange} />
@@ -114,13 +114,7 @@ const Register = () => {
             <SubmitButton text="Register" loading={loading} />
           </div>
 
-          {/* Error/Success Message */}
-          {message && (
-            <div className={`mt-2 text-center px-4 py-2 rounded ${message.type === 'error' ? 'bg-red-700 text-white' : 'bg-green-700 text-white'}`}>
-              {message.text}
-            </div>
-          )}
-
+          {/* Error/Success Message */} // No need for this as we are using showToast
           {/* Login Link */}
           <p className="text-sm text-gray-400 pt-2 text-center">
             Already have an account?{" "}

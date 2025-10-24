@@ -1,20 +1,18 @@
-let rateLimit;
-try {
-  rateLimit = require('express-rate-limit');
-} catch (e) {
-  if (process.env.NODE_ENV === 'test') {
-    rateLimit = null;
-  } else {
-    throw e;
-  }
+const rateLimit = require('express-rate-limit');
+
+function createLimiter({ windowMs, max, message }) {
+  return rateLimit({
+    windowMs: windowMs || 60 * 1000,
+    max: max || 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: message || 'Too many requests, please try again later.'
+  });
 }
 
-const createLimiter = ({ windowMs = 60 * 1000, max = 10, message = 'Too many requests, please try again later.' } = {}) => {
-  if (!rateLimit) {
-    // only provide a no-op in test environment
-    return (req, res, next) => next();
-  }
-  return rateLimit({ windowMs, max, standardHeaders: true, legacyHeaders: false, message });
-};
+// Presets
+const loginLimiter = createLimiter({ windowMs: 5 * 60 * 1000, max: 10, message: 'Too many login attempts, wait a few minutes.' });
+const registerLimiter = createLimiter({ windowMs: 60 * 60 * 1000, max: 5, message: 'Too many registrations from this source. Try later.' });
+const voteLimiter = createLimiter({ windowMs: 60 * 1000, max: 3, message: 'Too many votes from this source, slow down.' });
 
-module.exports = { createLimiter };
+module.exports = { createLimiter, loginLimiter, registerLimiter, voteLimiter };

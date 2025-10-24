@@ -84,6 +84,8 @@ async function init() {
     // locate artifact
     const candidatePaths = [
       path.join(__dirname, '..', '..', 'artifacts', 'contracts', 'Voting.sol', 'Voting.json'),
+      path.join(__dirname, '..', '..', 'artifacts', 'Voting.json'),
+      path.join(__dirname, '..', '..', 'artifacts', 'contracts', 'SimpleVoting.sol', 'SimpleVoting.json'),
       path.join(__dirname, '..', '..', 'blockchain', 'build', 'contracts', 'Voting.json'),
       path.join(__dirname, '..', '..', 'blockchain', 'build', 'Voting.json'),
     ];
@@ -129,8 +131,8 @@ async function init() {
     const latest = await provider.getBlockNumber();
     logger.info('Rescanning chain events from %d to %d', fromBlock, latest);
 
-    // Build topic for event
-    const topic = contract.interface.getEventTopic(eventFragment);
+    // Build topic for event (ethers v6 compatible)
+    const topic = eventFragment.topicHash || ethers.id(eventFragment.format());
 
     if (fromBlock <= latest) {
       try {

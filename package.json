@@ -4,14 +4,16 @@
   "scripts": {
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "cd server && npm run dev",
-    "dev:client": "cd client && npm run dev"
-    ,"docker:up":"sudo docker-compose -f docker-compose.prod.yml up --build -d",
-    "docker:down":"sudo docker-compose -f docker-compose.prod.yml down",
-    "docker:logs":"sudo docker-compose -f docker-compose.prod.yml logs -f",
-    "docker:seed":"sudo docker-compose -f docker-compose.prod.yml run --rm seed"
+    "dev:client": "cd client && npm run dev",
+    "start": "concurrently \"npm:start:server\" \"npm:start:client\"",
+    "start:server": "cd server && npm start",
+    "start:client": "cd client && npm run build && npm run preview"
   },
   "dependencies": {
     "faker": "^6.6.6",
-    "concurrently": "^8.2.0"
+    "web3": "^4.16.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

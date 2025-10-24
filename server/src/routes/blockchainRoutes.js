@@ -8,6 +8,8 @@ router.use(mandatory);
 // Blockchain status
 router.get('/status', blockchainController.getStatus);
 router.post('/status', requireRole(['admin']), blockchainController.updateStatus);
+// Blockchain metrics
+router.get('/metrics', blockchainController.getMetrics);
 // Blockchain config
 router.get('/config', requireRole(['admin']), blockchainController.getConfig);
 router.post('/config', requireRole(['admin']), blockchainController.updateConfig);
@@ -26,5 +28,13 @@ router.get('/fraud-alerts', requireRole(['admin']), blockchainController.fraudAl
 // Backup/restore
 router.post('/backup', requireRole(['admin']), blockchainController.backup);
 router.post('/restore', requireRole(['admin']), blockchainController.restore);
+
+// F.6.3: Blockchain Health Monitor
+router.get('/health', blockchainController.checkBlockchainHealth);
+router.get('/nodes/status', blockchainController.getNodeStatus);
+router.get('/nodes/status/:nodeId', blockchainController.getNodeStatus);
+router.get('/network-config', blockchainController.getNetworkConfiguration);
+router.get('/gas-tracker', blockchainController.getGasTracker);
+router.get('/block-explorer', blockchainController.getBlockExplorer);
 
 module.exports = router;

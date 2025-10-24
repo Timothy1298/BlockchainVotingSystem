@@ -1,7 +1,12 @@
 const votingContract = require("../blockchain/voting");
 const Election = require('../models/Election');
+const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
+const VoteReceipt = require('../models/VoteReceipt');
+const Notification = require('../models/Notification');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
+const crypto = require('crypto');
 
 exports.getCandidates = async (req, res) => {
   // If electionId provided, fetch candidates for that election (DB) else fall back to global contract
@@ -36,6 +41,7 @@ exports.getCandidates = async (req, res) => {
   }
 };
 
+// F.4.1: Cast Vote (Enhanced)
 exports.vote = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -48,31 +54,110 @@ exports.vote = async (req, res) => {
     const voterId = req.user?.id || req.body.voterAddress || (req.headers['x-forwarded-for'] || req.ip || '').toString();
     if (!voterId) return res.error(401, 'Authentication required to cast vote.', 2002);
 
+    // Get election and validate
+    const election = await Election.findById(electionId);
+    if (!election) return res.error(404, 'Election not found', 2003);
+
+    // Check if voting is enabled
+    if (!election.votingEnabled) {
+      return res.error(400, 'Voting is not currently enabled for this election', 2008);
+    }
+
+    // Check election status and timing
+    const now = new Date();
+    if (election.startsAt && now < election.startsAt) {
+      return res.error(400, 'Election has not started yet', 2009);
+    }
+    if (election.endsAt && now > election.endsAt) {
+      return res.error(400, 'Election has ended', 2010);
+    }
+
+    // Check if voter is registered for this election
+    if (!election.registeredVoters.includes(voterId)) {
+      return res.error(403, 'Voter not registered for this election', 2011);
+    }
+
+    // Find the candidate
+    const candidate = election.candidates.id ? election.candidates.id(candidateId) : 
+      election.candidates.find(c => String(c._id) === String(candidateId) || String(c.id) === String(candidateId));
+    if (!candidate) return res.error(404, 'Candidate not found', 2004);
+
+    if (!candidate.isActive) {
+      return res.error(400, 'Candidate is not active', 2012);
+    }
+
+    const seatId = candidate.seat;
+    const votedKey = `${voterId}:${seatId}`; // e.g., "65c342d:President"
+
+    // Check if already voted for this seat
+    if (election.voters.includes(votedKey)) {
+      return res.error(400, `You have already voted for the seat: ${seatId}`, 2005);
+    }
+
     // If BLOCKCHAIN_MOCK or using DB elections, update Election document atomically
     if (process.env.BLOCKCHAIN_MOCK === 'true' || electionId) {
-      const election = await Election.findById(electionId);
-      if (!election) return res.error(404, 'Election not found', 2003);
-
-      // Find the candidate to get the seat name
-      const candidate = election.candidates.id ? election.candidates.id(candidateId) : election.candidates.find(c => String(c._id) === String(candidateId) || String(c.id) === String(candidateId));
-      if (!candidate) return res.error(404, 'Candidate not found', 2004);
-
-      const seatId = candidate.seat;
-      const votedKey = `${voterId}:${seatId}`; // e.g., "65c342d:President"
-
       // Use atomic update: only increment votes and push voter if votedKey not present
       const filter = { _id: electionId, voters: { $ne: votedKey }, 'candidates._id': candidate._id };
-      const update = { $inc: { 'candidates.$.votes': 1 }, $push: { voters: votedKey } };
+      const update = { 
+        $inc: { 'candidates.$.votes': 1, totalVotes: 1 }, 
+        $push: { voters: votedKey } 
+      };
       const result = await Election.updateOne(filter, update);
+      
       if (result.matchedCount === 0 || result.modifiedCount === 0) {
-        // Could be already voted or race
-        // Check if voter already recorded
-        const refreshed = await Election.findById(electionId).select('voters');
-        if (refreshed && refreshed.voters.includes(votedKey)) return res.error(400, `You have already voted for the seat: ${seatId}`, 2005);
         return res.error(500, 'Failed to record vote due to concurrent update', 2006);
       }
 
-      return res.success({ electionId }, 'Vote cast successfully (db)');
+      // Generate vote receipt
+      const receiptHash = crypto.createHash('sha256')
+        .update(`${electionId}:${candidateId}:${voterId}:${Date.now()}`)
+        .digest('hex');
+
+      // Store vote receipt in dedicated collection
+      await VoteReceipt.createFromVote({
+        electionId,
+        candidateId,
+        voterId,
+        receiptHash,
+        candidateName: candidate.name,
+        seat: seatId,
+        electionTitle: election.title
+      });
+
+      // Update user's voting history
+      if (req.user?.id) {
+        await User.findByIdAndUpdate(req.user.id, {
+          $push: {
+            votingHistory: {
+              election: electionId,
+              seats: [seatId],
+              votedAt: new Date(),
+              receiptHash: receiptHash
+            }
+          }
+        });
+      }
+
+      // Log the vote
+      await AuditLog.create({
+        action: 'vote_cast',
+        performedBy: voterId,
+        details: { 
+          electionId: election._id,
+          candidateId: candidate._id,
+          candidateName: candidate.name,
+          seat: seatId,
+          receiptHash: receiptHash
+        },
+        timestamp: new Date()
+      });
+
+      return res.success({ 
+        electionId, 
+        receiptHash,
+        candidateName: candidate.name,
+        seat: seatId
+      }, 'Vote cast successfully');
     }
 
     // Otherwise, attempt to call the blockchain contract (non-DB path)
@@ -92,10 +177,107 @@ exports.vote = async (req, res) => {
       await tx.wait();
     }
 
-    return res.success({ txHash: tx?.hash || null }, 'Vote cast successfully (on-chain)');
+    // F.4.2: Generate Receipt
+    const receiptHash = crypto.createHash('sha256')
+      .update(`${electionId}:${candidateId}:${voterId}:${tx?.hash || Date.now()}`)
+      .digest('hex');
+
+    // Store vote receipt with blockchain transaction details
+    await VoteReceipt.createFromVote({
+      electionId,
+      candidateId,
+      voterId,
+      receiptHash,
+      transactionHash: tx?.hash,
+      candidateName: candidate.name,
+      seat: seatId,
+      electionTitle: election.title,
+      blockNumber: tx?.blockNumber,
+      blockHash: tx?.blockHash,
+      gasUsed: tx?.gasUsed
+    });
+
+    // Log the vote
+    await AuditLog.create({
+      action: 'vote_cast_onchain',
+      performedBy: voterId,
+      details: { 
+        electionId: election._id,
+        candidateId: candidate._id,
+        candidateName: candidate.name,
+        seat: seatId,
+        transactionHash: tx?.hash,
+        receiptHash: receiptHash
+      },
+      timestamp: new Date()
+    });
+
+    return res.success({ 
+      txHash: tx?.hash || null, 
+      receiptHash,
+      candidateName: candidate.name,
+      seat: seatId
+    }, 'Vote cast successfully (on-chain)');
   } catch (err) {
     logger.error('Error voting: %s', err?.message || err);
     return res.error(500, 'Error voting', 2000, { error: err?.message });
+  }
+};
+
+// F.4.X: Get vote history for authenticated user
+exports.getVoteHistory = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.error(401, 'Unauthorized');
+
+    // Get vote history from VoteReceipt collection
+    const history = await VoteReceipt.getVoterHistory(userId, 50);
+    
+    const formattedHistory = history.map(receipt => ({
+      electionId: receipt.electionId,
+      candidateId: receipt.candidateId,
+      candidateName: receipt.candidateName,
+      seat: receipt.seat,
+      electionTitle: receipt.electionTitle,
+      receiptHash: receipt.receiptHash,
+      transactionHash: receipt.transactionHash,
+      votedAt: receipt.votedAt,
+      isVerified: receipt.isVerified,
+      blockNumber: receipt.blockNumber
+    }));
+
+    return res.success(formattedHistory);
+  } catch (err) {
+    logger.error('Error fetching vote history: %s', err?.message || err);
+    return res.error(500, 'Error fetching vote history', 1201, { error: err?.message });
+  }
+};
+
+// F.4.X: Get audit trail for authenticated user
+exports.getAuditTrail = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.error(401, 'Unauthorized');
+
+    const logs = await AuditLog.find({ performedBy: userId }).sort({ timestamp: -1 }).lean();
+    return res.success(logs);
+  } catch (err) {
+    logger.error('Error fetching audit trail: %s', err?.message || err);
+    return res.error(500, 'Error fetching audit trail', 1202, { error: err?.message });
+  }
+};
+
+// F.4.X: Verify vote receipt
+exports.verifyReceipt = async (req, res) => {
+  try {
+    const { receiptHash } = req.params;
+    if (!receiptHash) return res.error(400, 'Receipt hash is required');
+
+    const receipt = await VoteReceipt.verifyReceipt(receiptHash);
+    return res.success(receipt.formattedReceipt);
+  } catch (err) {
+    logger.error('Error verifying receipt: %s', err?.message || err);
+    return res.error(500, 'Error verifying receipt', 1203, { error: err?.message });
   }
 };
 
@@ -121,6 +303,52 @@ exports.hasVoted = async (req, res) => {
   }
 };
 
+
+// F.4.2: Verify Vote Receipt
+exports.verifyReceipt = async (req, res) => {
+  try {
+    const { receiptHash, electionId } = req.query;
+    
+    if (!receiptHash) {
+      return res.status(400).json({ message: 'Receipt hash is required' });
+    }
+    
+    // Search for the vote in audit logs
+    const auditLog = await AuditLog.findOne({
+      'details.receiptHash': receiptHash,
+      action: { $in: ['vote_cast', 'vote_cast_onchain'] }
+    });
+    
+    if (!auditLog) {
+      return res.status(404).json({ 
+        valid: false, 
+        message: 'Receipt not found or invalid' 
+      });
+    }
+    
+    // If electionId provided, verify it matches
+    if (electionId && auditLog.details.electionId !== electionId) {
+      return res.status(400).json({ 
+        valid: false, 
+        message: 'Receipt does not match the specified election' 
+      });
+    }
+    
+    res.json({
+      valid: true,
+      receipt: {
+        receiptHash: auditLog.details.receiptHash,
+        electionId: auditLog.details.electionId,
+        candidateName: auditLog.details.candidateName,
+        seat: auditLog.details.seat,
+        votedAt: auditLog.timestamp,
+        transactionHash: auditLog.details.transactionHash
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Error verifying receipt', error: err.message });
+  }
+};
 
 exports.addCandidate = async (req, res) => {
   try {

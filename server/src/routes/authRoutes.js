@@ -4,7 +4,9 @@ const router = express.Router();
 const { body } = require('express-validator');
 const authController = require('../controllers/authController');
 const { mandatory } = require('../middleware/auth');
+const { loginLimiter, registerLimiter } = require('../middleware/rateLimiter');
 const { createLimiter } = require('../middleware/rateLimiter');
+
 
 const authLimiter = createLimiter({ windowMs: 60 * 1000, max: 10, message: 'Too many auth attempts, try again later.' });
 
@@ -16,7 +18,7 @@ router.post(
 		body('email').isEmail().withMessage('Valid email required'),
 		body('password').isLength({ min: 6 }).withMessage('Password min 6 chars'),
 	],
-	authLimiter,
+	registerLimiter,
 	authController.register
 );
 
@@ -24,7 +26,7 @@ router.post(
 router.post(
 	'/login',
 	[body('email').isEmail(), body('password').exists()],
-	authLimiter,
+	loginLimiter,
 	authController.login
 );
 

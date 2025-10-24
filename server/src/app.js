@@ -6,6 +6,7 @@ const authRoutes = require('./routes/authRoutes');
 const voteRoutes = require("./routes/voteRoutes");
 const electionRoutes = require('./routes/electionRoutes');
 const voterRoutes = require('./routes/voterRoutes');
+const voterAuthRoutes = require('./routes/voterAuthRoutes');
 const adminProfileRoutes = require('./routes/adminProfileRoutes');
 const resultsRoutes = require('./routes/resultsRoutes');
 const resultsOverviewRoutes = require('./routes/resultsOverviewRoutes');
@@ -24,6 +25,9 @@ const candidateRoutes = require('./routes/candidateRoutes');
 const candidateOverviewRoutes = require('./routes/candidateOverviewRoutes');
 const voterStatsRoutes = require('./routes/voterStatsRoutes');
 const alertRoutes = require('./routes/alertRoutes');
+const systemMonitoringRoutes = require('./routes/systemMonitoringRoutes');
+const adminKycRoutes = require('./routes/adminKycRoutes');
+const adminAuditRoutes = require('./routes/adminAuditRoutes');
 
 const config = require('./config');
 const logger = require('./utils/logger');
@@ -51,6 +55,7 @@ app.use(responseMiddleware);
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/voter-auth', voterAuthRoutes);
 app.use("/api/votes", voteRoutes);
 app.use('/api/elections', electionRoutes); // includes /overview
 app.use('/api/voters', voterRoutes);
@@ -90,6 +95,10 @@ app.use('/api/users', userRoutes);
 app.use('/api/candidates', candidateRoutes);
 app.use('/api/candidates/overview', candidateOverviewRoutes); // alias
 app.use('/api/alerts', alertRoutes);
+app.use('/api/system', systemMonitoringRoutes);
+app.use('/api/admin-settings', require('./routes/adminSettingsRoutes'));
+app.use('/api/admin/kyc', adminKycRoutes);
+app.use('/api/admin/audit', adminAuditRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

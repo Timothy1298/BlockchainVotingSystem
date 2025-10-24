@@ -1,6 +1,6 @@
 // client/src/pages/auth/ResetPassword.jsx
 import React, { useState } from "react";
-import { InputField, SubmitButton } from "../../components/FormComponents";
+import { InputField, SubmitButton } from "../../components/ui/forms";
 import { motion } from "framer-motion";
 import { Link, useParams } from "react-router-dom";
 

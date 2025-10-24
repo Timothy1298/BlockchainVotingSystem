@@ -1,192 +1,207 @@
-// client/src/pages/auth/Dashboard.jsx
-import React, { useContext, useState, useEffect } from "react";
+// client/src/pages/Dashboard.jsx
+import React, { useContext, useState, useEffect, useMemo, memo } from "react";
 import { useNavigate, Link, useLocation } from "react-router-dom"; 
 import { DashboardLayout } from "../layouts/DashboardLayout";
-import { AuthContext } from "../context/AuthContext";
-// Assuming VoteCharts components exist and are imported correctly
-// import { VotePieChart, VoteBarChart } from "../components/VoteCharts";
-import API from "../services/api";
-import Toast from "../components/Toast";
-import LiveSyncStatus from "../components/LiveSyncStatus";
-import { motion } from "framer-motion"; 
+import { AuthContext } from "../contexts/auth";
+import { useElections } from "../hooks/elections";
+import { useSystemMonitoring } from "../hooks/system";
+import { useQuery } from '@tanstack/react-query';
+import { usersAPI } from '../services/api';
+import { StatCard, StatusCard, MetricCard, ElectionCard } from "../components/common";
+import { Toast } from "../components/ui/feedback";
+import { SystemStatus, PerformanceMonitor, SystemHealthDashboard } from "../components/common";
+import { motion } from "framer-motion";
+import { 
+  Users, 
+  Vote, 
+  Calendar, 
+  TrendingUp, 
+  Shield, 
+  Activity,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  BarChart3,
+  PieChart
+} from "lucide-react";
 
 // Placeholder components if you haven't implemented them yet
-const VotePieChart = ({ data }) => <div className="text-gray-500 text-center py-10">Pie Chart Placeholder</div>;
-const VoteBarChart = ({ data }) => <div className="text-gray-500 text-center py-10">Bar Chart Placeholder</div>;
+const VotePieChart = memo(({ data }) => (
+  <div className="h-full flex items-center justify-center bg-gray-800 rounded-lg border border-gray-700">
+    <div className="text-center">
+      <PieChart className="w-12 h-12 text-sky-400 mx-auto mb-2" />
+      <p className="text-gray-400">Pie Chart Placeholder</p>
+      <p className="text-xs text-gray-500">Data: {data?.length || 0} items</p>
+    </div>
+  </div>
+));
+
+VotePieChart.displayName = 'VotePieChart';
+
+const VoteBarChart = memo(({ data }) => (
+  <div className="h-full flex items-center justify-center bg-gray-800 rounded-lg border border-gray-700">
+    <div className="text-center">
+      <BarChart3 className="w-12 h-12 text-sky-400 mx-auto mb-2" />
+      <p className="text-gray-400">Bar Chart Placeholder</p>
+      <p className="text-xs text-gray-500">Data: {data?.length || 0} items</p>
+    </div>
+  </div>
+));
+
+VoteBarChart.displayName = 'VoteBarChart';
 
 
-const Dashboard = () => {
+const Dashboard = memo(() => {
   const { user, token, logout } = useContext(AuthContext);
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const [overview, setOverview] = useState({ active: [], upcoming: [], completed: [] });
-  const [results, setResults] = useState(null);
-  const [voterStats, setVoterStats] = useState({ total: 0, cast: 0, rate: 0 });
-  const [candidates, setCandidates] = useState([]);
+  // Use React Query hooks for data fetching
+  const { data: electionsData, isLoading: electionsLoading } = useElections();
+  const { data: usersData, isLoading: usersLoading } = useQuery({
+    queryKey: ['users'],
+    queryFn: usersAPI.list,
+    staleTime: 1000 * 30,
+  });
+  const { data: systemData, isLoading: systemLoading, error: systemError } = useSystemMonitoring();
+
   const [focusedElection, setFocusedElection] = useState(null);
   const [focusedCandidates, setFocusedCandidates] = useState([]);
   const [showCandidatesPanel, setShowCandidatesPanel] = useState(false);
-  const location = useLocation();
-  const [blockchain, setBlockchain] = useState({ blocks: 0, txCount: 0, latestHash: '', latestTime: '', nodes: 0 }); 
-  const [logs, setLogs] = useState([]);
-  const [alerts, setAlerts] = useState([]);
-  const [notifications, setNotifications] = useState([]);
-  
-  // NEW STATE: API Status Tracker
-  const [apiStatus, setApiStatus] = useState({
-    overview: 'pending', results: 'pending', voterStats: 'pending', 
-    candidates: 'pending', blockchain: 'pending', logs: 'pending', 
-    alerts: 'pending', notifications: 'pending'
-  });
-  
-  const [loading, setLoading] = useState(true);
   const [toastMsg, setToastMsg] = useState("");
+  const [alerts, setAlerts] = useState([]);
 
+  // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL LOGIC
   // Redirect if not logged in
   useEffect(() => {
     if (!token) navigate("/login");
-  }, [token]);
+  }, [token, navigate]);
+
+  // If navigated with an electionId (from Elections list 'View Candidates'), fetch that election
+  useEffect(() => {
+    const electionId = location?.state?.electionId;
+    if (!electionId) return;
+    
+    const elections = Array.isArray(electionsData) ? electionsData : [];
+    const election = elections.find(e => e._id === electionId);
+    if (election) {
+      setFocusedElection(election);
+      setFocusedCandidates(election?.candidates || []);
+      setShowCandidatesPanel(true);
+    }
+  }, [location?.state, electionsData]);
+
+  // Process data from hooks with proper null checks - memoized for performance
+  const elections = useMemo(() => Array.isArray(electionsData) ? electionsData : [], [electionsData]);
+  
+  const overview = useMemo(() => ({
+    active: elections.filter(e => e.status === 'Open'),
+    upcoming: elections.filter(e => e.status === 'Setup'),
+    completed: elections.filter(e => e.status === 'Closed')
+  }), [elections]);
+  
+  const results = useMemo(() => elections.find(e => e.status === 'Closed') || null, [elections]);
+  
+  const voterStats = useMemo(() => {
+    if (!usersData?.users) return { total: 0, cast: 0, rate: 0 };
+    const total = usersData.users.length;
+    const cast = usersData.users.filter(u => u.votingHistory?.length > 0).length;
+    const rate = total > 0 ? (cast / total * 100).toFixed(1) : 0;
+    return { total, cast, rate };
+  }, [usersData]);
+  
+  const candidates = useMemo(() => elections.flatMap(e => e.candidates || []), [elections]);
+  
+  const blockchain = useMemo(() => systemData?.blockchain || { blocks: 0, txCount: 0, latestHash: '', latestTime: '', nodes: 0 }, [systemData]);
+  const logs = useMemo(() => systemData?.logs || [], [systemData]);
+  const systemAlerts = useMemo(() => systemData?.alerts || [], [systemData]);
+  const notifications = useMemo(() => systemData?.notifications || [], [systemData]);
+
+  // Handle system monitoring errors gracefully
+  if (systemError) {
+    console.warn('System monitoring data unavailable:', systemError);
+  }
+
+  const loading = electionsLoading || usersLoading || systemLoading;
 
   const showToast = (msg) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(""), 4000);
   };
 
-  // Unified fetch - CORRECTED ENDPOINTS (NO DOUBLE /api) WITH STATUS TRACKING
-  const fetchAllDashboardData = async () => {
-    setLoading(true);
-    // Reset all statuses to pending
-    setApiStatus({
-      overview: 'pending', results: 'pending', voterStats: 'pending', 
-      candidates: 'pending', blockchain: 'pending', logs: 'pending', 
-      alerts: 'pending', notifications: 'pending'
-    });
-
-    try {
-      const endpoints = [
-        "/elections/overview", "/results/overview", "/voters/stats", 
-        "/candidates/overview", "/blockchain/status", "/audit-logs", 
-        "/alerts", "/notifications"
-      ];
-      // Keys must match the apiStatus state keys
-      const keys = [
-        "overview", "results", "voterStats", "candidates", 
-        "blockchain", "logs", "alerts", "notifications"
-      ];
-
-      const promises = endpoints.map(url => API.get(url));
-      // Use Promise.allSettled to ensure all resolve/reject before proceeding
-      const resultsArray = await Promise.allSettled(promises);
-
-      resultsArray.forEach((res, i) => {
-        const key = keys[i];
-        
-        if (res.status === "rejected") {
-          console.error(`🚨 Failed to fetch ${key}:`, res.reason);
-          showToast(`⚠️ Failed to load ${key}.`);
-          setApiStatus(prev => ({ ...prev, [key]: 'failed' }));
-          return;
-        }
-
-        // If fulfilled, update status and set data
-        setApiStatus(prev => ({ ...prev, [key]: 'fulfilled' }));
-        const data = res.value.data;
-        
-        switch(key) {
-            case 'overview': setOverview(data); break;
-            case 'results': setResults(data); break;
-            case 'voterStats': setVoterStats(data.total !== undefined ? data : { total: 0, cast: 0, rate: 0 }); break;
-            case 'candidates': setCandidates(data); break;
-            case 'blockchain': setBlockchain(prev => ({...prev, ...data})); break;
-            case 'logs': setLogs(data); break;
-            case 'alerts': setAlerts(data.alerts || data); break; // Adjusting for array vs object response
-            case 'notifications': setNotifications(data); break;
-            default: break;
-        }
-      });
-      
-    } catch (err) {
-      console.error("🔥 Global fetch error:", err);
-      showToast("⚠️ Failed to fetch dashboard data.");
-    } finally {
-      // This will run immediately once all promises in allSettled finish (whether success or fail)
-      setLoading(false); 
-    }
-  };
-
-  useEffect(() => {
-    setLoading(true);
-    fetchAllDashboardData();
-    const interval = setInterval(fetchAllDashboardData, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // If navigated with an electionId (from Elections list 'View Candidates'), fetch that election
-  useEffect(() => {
-    const electionId = location?.state?.electionId;
-    if (!electionId) return;
-    const fetchElection = async (id) => {
-      try {
-        const res = await API.get(`/elections/${id}`);
-        const ev = res.data;
-        setFocusedElection(ev);
-        setFocusedCandidates(ev?.candidates || []);
-        setShowCandidatesPanel(true);
-      } catch (err) {
-        console.error('Failed to fetch election candidates', err);
-        setShowCandidatesPanel(false);
-      }
-    };
-    fetchElection(electionId);
-  }, [location?.state]);
+  // Show loading state while data is being fetched
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-500 mx-auto mb-4"></div>
+            <p className="text-gray-400">Loading dashboard data...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
       <Toast message={toastMsg} />
+      
 
       {/* GLOBAL CRITICAL ALERT BANNER */}
-      {(Array.isArray(alerts) && alerts.length > 0) && (
+      {(Array.isArray(systemAlerts) && systemAlerts.length > 0) && (
         <motion.div
             initial={{ y: -50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             className="bg-red-800 text-white p-4 mb-6 rounded-lg shadow-2xl border-l-4 border-red-500 font-bold flex justify-between items-center"
         >
             <div className="flex items-center">
-                <svg className="w-6 h-6 mr-3 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                CRITICAL SECURITY ALERT: {alerts[0].message || alerts[0]} {/* Added fallback for Latin text issue */}
+                <AlertTriangle className="w-6 h-6 mr-3 animate-pulse" />
+                CRITICAL SECURITY ALERT: {systemAlerts[0].message || systemAlerts[0]}
             </div>
             <button onClick={() => setAlerts(alerts.slice(1))} className="text-red-300 hover:text-white transition">Dismiss</button>
         </motion.div>
       )}
 
-      {/* API DEBUG STATUS TRACKER (The new debugging tool) */}
-      <section className="bg-gray-900 border border-gray-700 p-4 mb-6 rounded-lg shadow-2xl">
-        <h3 className="text-lg font-bold text-yellow-400 mb-3 border-b border-gray-700 pb-2">
-          API Load Status Debugger 🛠️
-        </h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-          {Object.entries(apiStatus).map(([key, status]) => (
-            <div key={key} className="flex items-center space-x-2">
-              <span className={`w-3 h-3 rounded-full ${
-                status === 'fulfilled' ? 'bg-emerald-500' : 
-                status === 'failed' ? 'bg-red-500' : 
-                'bg-yellow-500 animate-pulse'
-              }`}></span>
-              <span className="font-semibold text-gray-300 capitalize">{key}:</span>
-              <span className={`font-mono ${
-                status === 'fulfilled' ? 'text-emerald-300' : 
-                status === 'failed' ? 'text-red-300' : 
-                'text-yellow-300'
-              }`}>
-                {status}
-              </span>
-            </div>
-          ))}
-        </div>
-        <p className="text-xs text-gray-500 mt-3">
-            If the status bar remains yellow ('pending'), that endpoint is timing out on the server.
-        </p>
-      </section>
+      {/* QUICK STATS OVERVIEW */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <StatCard
+          icon={Users}
+          title="Total Voters"
+          value={voterStats.total}
+          subtitle={`${voterStats.cast} votes cast`}
+          trend="up"
+          trendValue={voterStats.rate}
+          highlightColor="text-sky-400"
+        />
+        <StatCard
+          icon={Vote}
+          title="Active Elections"
+          value={overview.active?.length || 0}
+          subtitle={`${overview.upcoming?.length || 0} upcoming`}
+          highlightColor="text-emerald-400"
+        />
+        <StatCard
+          icon={Activity}
+          title="Blockchain Health"
+          value={blockchain.nodes || 0}
+          subtitle={`${blockchain.blocks || 0} blocks`}
+          highlightColor="text-purple-400"
+        />
+        <StatCard
+          icon={Shield}
+          title="Security Status"
+          value={systemAlerts.length === 0 ? "Secure" : "Alert"}
+          subtitle={`${logs.length} audit logs`}
+          highlightColor={systemAlerts.length === 0 ? "text-green-400" : "text-red-400"}
+        />
+      </div>
+
+      {/* SYSTEM STATUS & PERFORMANCE DASHBOARD */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <SystemStatus />
+        <PerformanceMonitor />
+      </div>
 
       {/* MAIN DASHBOARD GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
@@ -203,61 +218,30 @@ const Dashboard = () => {
                         <p><strong>Role:</strong> <span className="text-emerald-400 font-semibold">{user.role}</span></p>
                         {/* Admin Tools moved here for convenience */}
                         <div className="pt-4 mt-4 border-t border-gray-700 flex gap-3 flex-wrap">
-                            <button onClick={fetchAllDashboardData} className="bg-sky-600 hover:bg-sky-500 text-white px-3 py-1 rounded-lg text-sm transition duration-150">Refresh Data</button>
+                            <button onClick={() => window.location.reload()} className="bg-sky-600 hover:bg-sky-500 text-white px-3 py-1 rounded-lg text-sm transition duration-150">Refresh Data</button>
                             <button onClick={logout} className="bg-red-600 hover:bg-red-500 text-white px-3 py-1 rounded-lg text-sm transition duration-150">Logout</button>
                         </div>
                     </div>
                 ) : <p className="text-gray-400">Loading user info...</p>}
             </section>
 
-            {/* Voter Stats (Enhanced Visual) */}
-            <section className="bg-gray-800 rounded-2xl p-6 border border-gray-700 shadow-lg">
-                <h2 className="text-xl font-bold text-sky-400 mb-4">Voter Turnout</h2>
-                <div className="text-white space-y-3">
-                    <p className="flex justify-between items-center">
-                        <span className="text-lg">Registered:</span> <span className="text-2xl font-bold text-sky-300">{voterStats.total}</span>
-                    </p>
-                    <p className="flex justify-between items-center pb-2 border-b border-gray-700">
-                        <span className="text-lg">Cast Votes:</span> <span className="text-2xl font-bold text-emerald-300">{voterStats.cast}</span>
-                    </p>
-                    
-                    {/* Turnout Rate Gauge Placeholder */}
-                    <div className="flex flex-col items-center pt-3">
-                        <div className="w-full h-4 bg-gray-700 rounded-full overflow-hidden">
-                            <div 
-                                className="h-full bg-emerald-500 transition-all duration-1000" 
-                                style={{ width: `${voterStats.rate || 0}%` }}
-                            ></div>
-                        </div>
-                        <p className="text-4xl font-extrabold text-emerald-400 mt-2">{voterStats.rate}%</p>
-                        <p className="text-sm text-gray-400">Current Turnout Rate</p>
-                    </div>
-                </div>
-            </section>
+            {/* Voter Turnout Metric */}
+            <MetricCard
+              icon={Users}
+              title="Voter Turnout"
+              value={voterStats.rate || 0}
+              unit="%"
+              description={`${voterStats.cast} of ${voterStats.total} registered voters`}
+              highlightColor="text-emerald-400"
+            />
             
-            {/* Blockchain Status (Enhanced with health check) */}
-            <section className="bg-gray-800 rounded-2xl p-6 border border-gray-700 shadow-lg">
-                <h2 className="text-xl font-bold text-sky-400 mb-4">Blockchain Core Status</h2>
-                <div className="text-white space-y-2">
-                    {/* Node Connectivity Health Check */}
-                    <p className="flex justify-between items-center border-b border-gray-700 pb-2">
-                        <span className="font-semibold">Node Health:</span>
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${blockchain.nodes > 1 ? 'bg-emerald-600' : 'bg-red-600'}`}>
-                            {blockchain.nodes > 1 ? `${blockchain.nodes}/16 Online` : 'Syncing...'}
-                        </span>
-                    </p>
-                    <p>Blocks Confirmed: <span className="text-lg text-yellow-400">{blockchain.blocks || 0}</span></p>
-                    <p>Transactions (Latest Block): <span className="text-lg text-sky-400">{blockchain.txCount || 0}</span></p>
-                    
-                    <div className="mt-4 pt-3 border-t border-gray-700">
-                        <p className="text-sm font-semibold">Latest Block Hash (Proof of Immutability):</p>
-                        <p className="text-xs text-emerald-400 font-mono break-all">{blockchain.latestHash?.substring(0, 30) + '...' || 'N/A'}</p>
-                    </div>
-                </div>
-            </section>
-            
-      {/* Live Sync Status Widget */}
-      <LiveSyncStatus />
+            {/* Blockchain Status */}
+            <StatusCard
+              status={blockchain.nodes > 1 ? "active" : "warning"}
+              title="Blockchain Network"
+              description={`${blockchain.nodes || 0} nodes online, ${blockchain.blocks || 0} blocks confirmed`}
+              icon={Activity}
+            />
         </div>
         
         {/* === COLUMN 2: Core Data (Elections & Results Charts) === */}
@@ -291,7 +275,7 @@ const Dashboard = () => {
             {/* Live Results/Analytics (Combined) */}
             {results?.chartData?.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="h-72"> {/* Define height for charts */}
+                    <div className="h-72">
                         <h3 className="text-lg font-semibold text-sky-400 mb-3">Vote Distribution by Candidate</h3>
                         <VotePieChart data={results.chartData} />
                     </div>
@@ -396,20 +380,25 @@ const Dashboard = () => {
         </div>
       </div>
 
+      {/* System Monitoring Section */}
+      <div className="mt-8 space-y-6">
+        <SystemHealthDashboard />
+        <PerformanceMonitor />
+      </div>
+
       {/* Global Loading Screen (Only shown if 'loading' is true) */}
       {loading && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="flex flex-col items-center text-sky-400 text-xl font-bold">
-            <svg className="w-10 h-10 animate-spin mb-3" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"/>
-                <path d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" fill="currentColor" className="opacity-75"/>
-            </svg>
+            <div className="w-10 h-10 animate-spin mb-3 border-4 border-sky-400 border-t-transparent rounded-full"></div>
             <span className="animate-pulse">Loading secure dashboard data...</span>
           </div>
         </div>
       )}
     </DashboardLayout>
   );
-};
+});
+
+Dashboard.displayName = 'Dashboard';
 
 export default Dashboard;

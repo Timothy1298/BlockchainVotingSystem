@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {DashboardLayout} from '../layouts/DashboardLayout';
-import API from '../services/api';
+import { usersAPI, votingAPI } from '../services/api';
 
 const UserDetails = () => {
   const [users, setUsers] = useState([]);
@@ -9,7 +9,7 @@ const UserDetails = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
+  const [success, setSuccess] = useState(null); 
   const [validateHash, setValidateHash] = useState('');
   const [validateResult, setValidateResult] = useState(null);
 
@@ -21,8 +21,8 @@ const UserDetails = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await API.get('/users');
-      setUsers(res.data.users || []);
+      const data = await usersAPI.list();
+      setUsers(data.users || []);
     } catch (err) {
       setError('Failed to fetch users.');
       setUsers([]);
@@ -47,7 +47,7 @@ const UserDetails = () => {
     setError(null);
     setSuccess(null);
     try {
-      await API.put(`/users/${form._id}`, form);
+      await usersAPI.update(form._id, form);
       setSuccess('User updated successfully.');
       fetchUsers();
     } catch (err) {
@@ -59,8 +59,8 @@ const UserDetails = () => {
   const handleValidate = async () => {
     setValidateResult(null);
     try {
-      const res = await API.post('/validate', { receiptHash: validateHash });
-      setValidateResult(res.data.valid ? 'Valid receipt hash.' : 'Invalid receipt hash.');
+      const data = await votingAPI.verifyReceipt(validateHash);
+      setValidateResult(data.valid ? 'Valid receipt hash.' : 'Invalid receipt hash.');
     } catch (err) {
       setValidateResult('Validation failed.');
     }

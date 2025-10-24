@@ -6,32 +6,34 @@
 // =====================================
 
 import React, { useState, Fragment, useContext } from 'react';
-import Topbar from '../components/Topbar';
+import { Topbar } from '../components/ui/layout';
+import { HelpGuide } from '../components/common';
 import { motion, AnimatePresence } from 'framer-motion';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { Home, Users, BarChart2, Settings, Shield, X, Bell, User, FileText, Activity, Database } from 'lucide-react';
-import { AuthContext } from '../context/AuthContext';
+import { AuthContext } from '../contexts/auth';
 
 
 // Sidebar
 // Sidebar
 
 const Sidebar = ({ user, mobileOpen, onClose }) => {
+  const location = useLocation();
   const isAdmin = user?.role === "admin";
   const tabs = [
-    { id: "dashboard", label: "Dashboard", icon: Home, to: "/dashboard" },
-    {id: "elections", label: "Elections", icon: Home, to: "/elections"}, 
-    { id: "candidates", label: "Candidates", icon: Users, to: "/candidates" },
-    { id: "results", label: "Results", icon: BarChart2, to: "/results" },
-    { id: "profile", label: "Profile", icon: User, to: "/profile" },
+    { id: "dashboard", label: "Dashboard", icon: Home, to: isAdmin ? "/admin/dashboard" : "/voter/dashboard" },
+    {id: "elections", label: "Elections", icon: Home, to: isAdmin ? "/admin/elections" : "/voter/dashboard"}, 
+    { id: "candidates", label: "Candidates", icon: Users, to: isAdmin ? "/admin/candidates" : "/voter/dashboard" },
+    { id: "results", label: "Results", icon: BarChart2, to: isAdmin ? "/admin/results" : "/voter/dashboard" },
+    { id: "profile", label: "Profile", icon: User, to: isAdmin ? "/admin/profile" : "/voter/profile" },
     ...(isAdmin ? [
-      { id: "settings", label: "Admin Settings", icon: Settings, to: "/admin-settings" },
-      { id: "voters", label: "Voters/Verify", icon: Shield, to: "/voters" },
-      { id: "system-logs", label: "System Logs", icon: FileText, to: "/system-logs" },
-      { id: "blockchain-health", label: "Blockchain Health", icon: Activity, to: "/blockchain-health" },
-      { id: "analytics", label: "Analytics & Reports", icon: BarChart2, to: "/analytics" },
-      { id: "notifications", label: "Notifications", icon: Bell, to: "/notifications" },
-      { id: "user-details", label: "User Details", icon: Database, to: "/user-details" }
+      { id: "settings", label: "Admin Settings", icon: Settings, to: "/admin/settings" },
+      { id: "voters", label: "Voters/Verify", icon: Shield, to: "/admin/voters" },
+      { id: "system-logs", label: "System Logs", icon: FileText, to: "/admin/system-logs" },
+      { id: "blockchain-health", label: "Blockchain Health", icon: Activity, to: "/admin/blockchain-health" },
+      { id: "analytics", label: "Analytics & Reports", icon: BarChart2, to: "/admin/analytics" },
+      { id: "notifications", label: "Notifications", icon: Bell, to: "/admin/notifications" },
+      { id: "user-details", label: "User Details", icon: Database, to: "/admin/user-details" }
     ] : [])
   ];
   const linkClass = ({ isActive }) =>
@@ -47,7 +49,12 @@ const Sidebar = ({ user, mobileOpen, onClose }) => {
         <h1 className="text-2xl font-extrabold text-sky-400 mb-12 tracking-wider">BLOCK VOTE</h1>
         <nav className="flex flex-col gap-2">
           {tabs.map(({ id, label, icon: Icon, to }) => (
-            <NavLink key={id} to={to} className={linkClass}>
+            <NavLink 
+              key={id} 
+              to={to} 
+              className={linkClass} 
+              end={id === 'dashboard'}
+            >
               <Icon className="w-5 h-5" /> {label}
             </NavLink>
           ))}
@@ -71,7 +78,13 @@ const Sidebar = ({ user, mobileOpen, onClose }) => {
               </div>
               <nav className="flex flex-col gap-2">
                 {tabs.map(({ id, label, icon: Icon, to }) => (
-                  <NavLink key={id} to={to} onClick={onClose} className={linkClass}>
+                  <NavLink 
+                    key={id} 
+                    to={to} 
+                    onClick={onClose} 
+                    className={linkClass} 
+                    end={id === 'dashboard'}
+                  >
                     <Icon className="w-5 h-5" /> {label}
                   </NavLink>
                 ))}
@@ -125,6 +138,7 @@ export const DashboardLayout = ({
         <main className="pt-20 px-4 md:px-8 pb-10 min-h-[calc(100vh-80px)] w-full max-w-7xl mx-auto">
           {children}
         </main>
+        <HelpGuide />
         <footer className="bg-gray-900 border-t border-gray-800 px-6 py-8 mt-auto">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex flex-col items-center md:items-start">

@@ -1,16 +1,16 @@
 
 const express = require("express");
 const router = express.Router();
-const { getCandidates, vote, addCandidate, hasVoted } = require("../controllers/voteController");
+const { getCandidates, vote, addCandidate, hasVoted, verifyReceipt, getVoteHistory, getAuditTrail } = require("../controllers/voteController");
 const { mandatory } = require("../middleware/auth");
-const { createLimiter } = require('../middleware/rateLimiter');
+const { voteLimiter } = require('../middleware/rateLimiter');
+const roles = require('../middleware/roles');
 
-const voteLimiter = createLimiter({ windowMs: 60 * 1000, max: 5, message: 'Too many votes from this source, slow down.' });
 const { body } = require('express-validator');
 
 router.use(mandatory);
-router.get("/hasVoted", hasVoted);
-router.get("/candidates", getCandidates);
+
+// F.4.1: Cast Vote
 router.post("/vote",
 	voteLimiter,
 	[
@@ -19,6 +19,19 @@ router.post("/vote",
 	],
 	vote
 );
-router.post("/candidates", addCandidate);
+
+// F.4.2: Vote Receipt Verification
+router.get("/verify/:receiptHash", verifyReceipt);
+
+// Vote status and candidates
+router.get("/hasVoted", hasVoted);
+router.get("/candidates", getCandidates);
+
+// Voter history and audit trail (auth required)
+router.get('/history', getVoteHistory);
+router.get('/audit', getAuditTrail);
+
+// Admin only - add candidates
+router.post("/candidates", roles(['admin']), addCandidate);
 
 module.exports = router;
