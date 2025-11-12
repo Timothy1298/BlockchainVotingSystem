@@ -40,8 +40,17 @@ const metrics = require('./utils/metrics');
 const app = express();
 
 // CORS configuration
+const clientOrigins = Array.isArray(config.clientOrigin) ? config.clientOrigin : [config.clientOrigin];
+// Accept origins configured explicitly or any localhost/127.0.0.1 origin used during development
+const localhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 app.use(cors({
-  origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+  origin: (incomingOrigin, callback) => {
+    // Allow non-browser requests like curl (no origin)
+    if (!incomingOrigin) return callback(null, true);
+    if (clientOrigins && clientOrigins.length && clientOrigins.includes(incomingOrigin)) return callback(null, true);
+    if (localhostRegex.test(incomingOrigin)) return callback(null, true);
+    return callback(new Error('CORS: Origin not allowed'), false);
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
@@ -104,7 +113,26 @@ app.use('/api/admin/audit', adminAuditRoutes);
 app.get('/api/health', (req, res) => {
   const dbConnected = process.env.DB_CONNECTED === 'true' || config.skipDb === false;
   const blockchainMock = process.env.BLOCKCHAIN_MOCK === 'true';
-  res.json({ success: true, data: { dbConnected, blockchainMock, env: process.env.NODE_ENV || 'development' }, message: 'health' });
+  // provide mongoose connection readyState if available (0 = disconnected, 1 = connected)
+  let mongoReadyState = null;
+  try {
+    const mongoose = require('mongoose');
+    mongoReadyState = mongoose.connection && typeof mongoose.connection.readyState !== 'undefined' ? mongoose.connection.readyState : null;
+  } catch (e) {
+    mongoReadyState = null;
+  }
+
+  res.json({
+    success: true,
+    data: {
+      dbConnected,
+      mongoReadyState,
+      votingContractAddress: config.votingContractAddress || null,
+      blockchainMock,
+      env: process.env.NODE_ENV || 'development'
+    },
+    message: 'health'
+  });
 });
 
 // Basic Prometheus-style metrics endpoint

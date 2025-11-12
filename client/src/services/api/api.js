@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  // Prefer explicit Vite env var; fall back to the backend default so dev client doesn't proxy to Vite's origin
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -41,11 +42,13 @@ API.interceptors.request.use((config) => {
     }
     
     // Add cache key for GET requests (but skip cache for elections)
-    if (config.method === 'get' && !config.url?.includes('/elections')) {
-        const cacheKey = `${config.url || ''}?${JSON.stringify(config.params || {})}`;
+    if (config.method === 'GET' && !config.url?.includes('/elections')) {
+      const cacheKey = `${config.url || ''}?${JSON.stringify(config.params || {})}`;
       const cached = cache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-        return Promise.resolve({ data: cached.data, fromCache: true });
+        // Return a rejected promise with a special flag so axios internals don't treat it as a config object.
+        // The response error handler will transform this into a resolved response.
+        return Promise.reject({ __fromCache: true, data: cached.data, config: { ...config, cacheKey } });
       }
       config.cacheKey = cacheKey;
     }
@@ -65,7 +68,7 @@ API.interceptors.request.use((config) => {
 // Cache successful GET responses
 API.interceptors.response.use(
   (response) => {
-    if (response.config && response.config.method === 'get' && response.config.cacheKey && !response.fromCache && !response.config.url?.includes('/elections')) {
+    if (response.config && response.config.method === 'GET' && response.config.cacheKey && !response.fromCache && !response.config.url?.includes('/elections')) {
       cache.set(response.config.cacheKey, {
         data: response.data,
         timestamp: Date.now()
@@ -73,7 +76,12 @@ API.interceptors.response.use(
     }
     return response;
   },
-  (error) => {
+  async (error) => {
+    // Transform cache short-circuit into a resolved response
+    if (error && error.__fromCache) {
+      return Promise.resolve({ data: error.data, fromCache: true, config: error.config });
+    }
+
     // Handle authentication errors
     if (error.response && error.response.status === 401) {
       // Clear token and redirect to login
@@ -260,6 +268,13 @@ export const analyticsAPI = {
   getGeographicBreakdown: (electionId) => API.get('/analytics/geographic-breakdown', { params: { electionId } }).then(res => res.data),
 };
 
+// ===== MAINTENANCE / BACKUP API =====
+export const maintenanceAPI = {
+  createBackup: (options) => API.post('/maintenance/backup', options).then(res => res.data),
+  restoreBackup: (backupFolder) => API.post('/maintenance/restore', { backupFolder }).then(res => res.data),
+  listBackups: () => API.get('/maintenance/backups').then(res => res.data),
+};
+
 // ===== NOTIFICATIONS API =====
 export const notificationsAPI = {
   list: (params) => API.get('/notifications', { params }).then(res => res.data),
@@ -328,6 +343,8 @@ export const configAPI = {
   setRules: (electionId, rules) => API.post(`/config/elections/${electionId}/rules`, rules).then(res => res.data),
   setPhases: (electionId, phases) => API.post(`/config/elections/${electionId}/phases`, phases).then(res => res.data),
   setBallotStructure: (electionId, structure) => API.post(`/config/elections/${electionId}/ballot-structure`, { structure }).then(res => res.data),
+  // Localization / language settings
+  setLocalization: (localizationData) => API.post('/config/localization', localizationData).then(res => res.data),
 };
 
 // ===== BLOCKCHAIN API =====

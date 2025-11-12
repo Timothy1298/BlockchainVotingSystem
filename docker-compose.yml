@@ -1,0 +1,44 @@
+version: '3.8'
+services:
+  mongo:
+    image: mongo:6.0
+    container_name: bvs_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./server/mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ganache:
+    image: trufflesuite/ganache-cli:latest
+    container_name: bvs_ganache
+    command: ["--deterministic", "--gasLimit", "0x1fffffffffffff"]
+    ports:
+      - "8545:8545"
+    volumes:
+      - ./blockchain:/blockchain
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bvs_server
+    working_dir: /app/server
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/voting_system
+      - BLOCKCHAIN_RPC=http://ganache:8545
+      - VOTING_CONTRACT_ADDRESS=
+      - NODE_ENV=development
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./server:/app/server
+    depends_on:
+      mongo:
+        condition: service_healthy
+      ganache:
+        condition: service_started

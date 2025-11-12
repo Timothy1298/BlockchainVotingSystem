@@ -1,5 +1,5 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { ErrorBoundary, NetworkStatus, OfflineMode, ProtectedRoute } from "./components/common";
 import { ElectionManage } from "./components/features/elections";
 import Login from "./pages/auth/Login";
@@ -33,6 +33,21 @@ import VoterProfile from "./pages/voters/VoterProfile";
 import VoterKycComplete from './pages/voters/VoterKycComplete';
 
 function App() {
+  // Small helper components to redirect legacy routes that include an :id param.
+  // Using <Navigate to="/admin/elections/:id" /> directly would navigate to the literal
+  // string ":id" instead of substituting the param, which produced client URLs like
+  // "/admin/elections/:id" and caused API calls with id=':id'. These components read
+  // the actual param and redirect correctly.
+  const RedirectToAdminElection = () => {
+    const { id } = useParams();
+    return <Navigate to={`/admin/elections/${id}`} replace />;
+  };
+
+  const RedirectToAdminElectionManage = () => {
+    const { id } = useParams();
+    return <Navigate to={`/admin/elections/${id}/manage`} replace />;
+  };
+
   return (
     <ErrorBoundary>
       <Router>
@@ -97,8 +112,8 @@ function App() {
           <Route path="/notifications" element={<Navigate to="/admin/notifications" />} />
           <Route path="/user-details" element={<Navigate to="/admin/user-details" />} />
           <Route path="/admin-settings" element={<Navigate to="/admin/settings" />} />
-          <Route path="/elections/:id" element={<Navigate to="/admin/elections/:id" />} />
-          <Route path="/elections/:id/manage" element={<Navigate to="/admin/elections/:id/manage" />} />
+          <Route path="/elections/:id" element={<RedirectToAdminElection />} />
+          <Route path="/elections/:id/manage" element={<RedirectToAdminElectionManage />} />
         </Routes>
         </Router>
     </ErrorBoundary>

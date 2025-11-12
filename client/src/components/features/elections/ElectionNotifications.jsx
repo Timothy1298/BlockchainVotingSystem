@@ -21,6 +21,9 @@ import {
   Globe
 } from 'lucide-react';
 
+import { notificationsAPI } from '../../../services/api/api';
+import { useGlobalUI } from '../../common';
+
 const ElectionNotifications = ({ electionId, election }) => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,7 +32,7 @@ const ElectionNotifications = ({ electionId, election }) => {
   const [newNotification, setNewNotification] = useState({
     title: '',
     message: '',
-    type: 'info',
+    type: 'system',
     channels: ['email', 'sms', 'push'],
     recipients: 'all',
     scheduledFor: '',
@@ -37,68 +40,15 @@ const ElectionNotifications = ({ electionId, election }) => {
     recurringPattern: 'once'
   });
 
-  // Mock notifications data
-  const mockNotifications = [
-    {
-      id: 1,
-      title: 'Election Registration Open',
-      message: 'Registration for the Student Union Election is now open. Please register to participate.',
-      type: 'info',
-      status: 'sent',
-      channels: ['email', 'push'],
-      recipients: 'all',
-      sentAt: '2024-01-15T10:00:00Z',
-      scheduledFor: null,
-      deliveryStats: {
-        email: { sent: 1250, delivered: 1200, opened: 950 },
-        sms: { sent: 0, delivered: 0, opened: 0 },
-        push: { sent: 800, delivered: 780, opened: 650 }
-      }
-    },
-    {
-      id: 2,
-      title: 'Voting Period Starting Soon',
-      message: 'The voting period for the Student Union Election will begin in 2 hours. Get ready to cast your vote!',
-      type: 'warning',
-      status: 'scheduled',
-      channels: ['email', 'sms', 'push'],
-      recipients: 'registered',
-      sentAt: null,
-      scheduledFor: '2024-01-20T08:00:00Z',
-      deliveryStats: null
-    },
-    {
-      id: 3,
-      title: 'Voting Reminder',
-      message: 'Don\'t forget to vote! The election closes in 24 hours. Your vote matters!',
-      type: 'reminder',
-      status: 'scheduled',
-      channels: ['email', 'push'],
-      recipients: 'not_voted',
-      sentAt: null,
-      scheduledFor: '2024-01-21T10:00:00Z',
-      deliveryStats: null
-    },
-    {
-      id: 4,
-      title: 'Election Results Available',
-      message: 'The results of the Student Union Election are now available. Check the results page to see the winners.',
-      type: 'success',
-      status: 'draft',
-      channels: ['email', 'push'],
-      recipients: 'all',
-      sentAt: null,
-      scheduledFor: null,
-      deliveryStats: null
-    }
-  ];
+  // live data will be loaded from the server via notificationsAPI
 
   const notificationTypes = [
-    { value: 'info', label: 'Information', color: 'blue', icon: Bell },
-    { value: 'warning', label: 'Warning', color: 'yellow', icon: AlertTriangle },
-    { value: 'reminder', label: 'Reminder', color: 'orange', icon: Clock },
-    { value: 'success', label: 'Success', color: 'green', icon: CheckCircle },
-    { value: 'urgent', label: 'Urgent', color: 'red', icon: AlertTriangle }
+    // align with server Notification.type enum: ['security','fraud','system','election','voter']
+    { value: 'system', label: 'System', color: 'blue', icon: Globe },
+    { value: 'security', label: 'Security', color: 'red', icon: AlertTriangle },
+    { value: 'fraud', label: 'Fraud', color: 'orange', icon: AlertTriangle },
+    { value: 'election', label: 'Election', color: 'green', icon: Users },
+    { value: 'voter', label: 'Voter', color: 'teal', icon: Mail }
   ];
 
   const recipientGroups = [
@@ -117,50 +67,121 @@ const ElectionNotifications = ({ electionId, election }) => {
     { value: 'in_app', label: 'In-App', icon: Monitor }
   ];
 
+  const { showLoader, hideLoader, showToast } = useGlobalUI();
+
   useEffect(() => {
     const fetchNotifications = async () => {
       setLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setNotifications(mockNotifications);
-      setLoading(false);
+      try {
+        const params = electionId ? { electionId } : {};
+  const data = await notificationsAPI.list(params);
+  // expect { notifications, pagination, unreadCount }
+  const list = Array.isArray(data) ? data : (data.notifications || data.data || []);
+  setNotifications(list);
+      } catch (err) {
+        console.error('Failed to load notifications:', err);
+        setNotifications([]);
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchNotifications();
   }, [electionId]);
 
   const handleCreateNotification = () => {
-    const notification = {
-      ...newNotification,
-      id: Date.now(),
-      status: 'draft',
-      sentAt: null,
-      deliveryStats: null
+    const create = async () => {
+      try {
+        if (!newNotification.title || !newNotification.message) {
+          showToast('Title and message are required', 'error');
+          return;
+        }
+        showLoader('Creating notification...');
+        const payload = {
+          title: newNotification.title,
+          message: newNotification.message,
+          type: newNotification.type,
+          severity: newNotification.severity || 'medium',
+          // include scheduling metadata
+          scheduledFor: newNotification.scheduledFor || null,
+          electionId
+        };
+        const created = await notificationsAPI.create(payload);
+        // server should return created notification object
+        setNotifications(prev => [created, ...prev]);
+        showToast('Notification created', 'success');
+        hideLoader();
+        setShowCreateModal(false);
+        setNewNotification({
+          title: '',
+          message: '',
+          type: 'system',
+          channels: ['email', 'sms', 'push'],
+          recipients: 'all',
+          scheduledFor: '',
+          isRecurring: false,
+          recurringPattern: 'once'
+        });
+      } catch (err) {
+        console.error('Failed to create notification:', err);
+        hideLoader();
+        showToast('Failed to create notification: ' + (err.response?.data?.message || err.message || err), 'error');
+        // keep modal open so user can retry
+      }
     };
-    
-    setNotifications(prev => [notification, ...prev]);
-    setShowCreateModal(false);
-    setNewNotification({
-      title: '',
-      message: '',
-      type: 'info',
-      channels: ['email', 'sms', 'push'],
-      recipients: 'all',
-      scheduledFor: '',
-      isRecurring: false,
-      recurringPattern: 'once'
-    });
+
+    create();
   };
 
   const handleSendNotification = (id) => {
-    setNotifications(prev => prev.map(notif => 
-      notif.id === id 
-        ? { ...notif, status: 'sent', sentAt: new Date().toISOString() }
-        : notif
-    ));
+    // Attempt to mark as sent via create/update endpoint. If API doesn't provide a send endpoint,
+    // update locally for immediate feedback.
+    const send = async () => {
+      try {
+        // Try to fetch the notification and update status
+  const notif = notifications.find(n => String(n._id || n.id) === String(id));
+        if (!notif) return;
+        const payload = { ...notif, status: 'sent', sentAt: new Date().toISOString() };
+        // If server supports update, call it; otherwise fall back to create
+        if (notif._id) {
+          await notificationsAPI.create(payload); // optimistic: server may accept create as send
+        } else {
+          await notificationsAPI.create(payload);
+        }
+  setNotifications(prev => prev.map(n => (String(n._id || n.id) === String(id) ? payload : n)));
+  showToast('Notification sent', 'success');
+      } catch (err) {
+        console.error('Failed to send notification:', err);
+        // fallback to local update
+        setNotifications(prev => prev.map(notif => 
+          String(notif._id || notif.id) === String(id)
+            ? { ...notif, status: 'sent', sentAt: new Date().toISOString() }
+            : notif
+        ));
+        showToast('Failed to send notification', 'error');
+      }
+    };
+
+    send();
   };
 
   const handleDeleteNotification = (id) => {
-    setNotifications(prev => prev.filter(notif => notif.id !== id));
+    const remove = async () => {
+      try {
+        showLoader('Deleting notification...');
+        await notificationsAPI.delete(id);
+  setNotifications(prev => prev.filter(notif => String(notif._id || notif.id) !== String(id)));
+        hideLoader();
+        showToast('Notification deleted', 'success');
+      } catch (err) {
+        console.error('Failed to delete notification:', err);
+        // fallback to local removal
+        setNotifications(prev => prev.filter(notif => String(notif._id || notif.id) !== String(id)));
+        showToast('Failed to delete notification', 'error');
+      }
+    };
+
+    remove();
   };
 
   const getStatusColor = (status) => {
@@ -255,7 +276,7 @@ const ElectionNotifications = ({ electionId, election }) => {
             
             return (
               <motion.div
-                key={notification.id}
+                key={notification._id || notification.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
@@ -280,7 +301,7 @@ const ElectionNotifications = ({ electionId, election }) => {
                         <div>
                           <span className="text-gray-400">Channels:</span>
                           <div className="flex gap-2 mt-1">
-                            {notification.channels.map((channel) => {
+                            {(notification.channels || []).map((channel) => {
                               const channelConfig = channels.find(c => c.value === channel);
                               const ChannelIcon = channelConfig?.icon || Bell;
                               return (
@@ -296,7 +317,7 @@ const ElectionNotifications = ({ electionId, election }) => {
                         <div>
                           <span className="text-gray-400">Recipients:</span>
                           <p className="text-gray-300 capitalize">
-                            {recipientGroups.find(r => r.value === notification.recipients)?.label}
+                            {recipientGroups.find(r => r.value === notification.recipients)?.label || (notification.recipients || 'All')}
                           </p>
                         </div>
                         
@@ -349,7 +370,7 @@ const ElectionNotifications = ({ electionId, election }) => {
                   <div className="flex items-center gap-2">
                     {notification.status === 'draft' && (
                       <button
-                        onClick={() => handleSendNotification(notification.id)}
+                        onClick={() => handleSendNotification(notification._id || notification.id)}
                         className="p-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors"
                         title="Send Now"
                       >
@@ -363,7 +384,7 @@ const ElectionNotifications = ({ electionId, election }) => {
                       <Edit className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => handleDeleteNotification(notification.id)}
+                      onClick={() => handleDeleteNotification(notification._id || notification.id)}
                       className="p-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
                       title="Delete"
                     >

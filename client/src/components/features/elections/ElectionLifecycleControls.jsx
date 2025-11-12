@@ -17,6 +17,15 @@ const ElectionLifecycleControls = ({ election, onElectionUpdate }) => {
   const [showResetModal, setShowResetModal] = useState(false);
   const [showFinalizeModal, setShowFinalizeModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Admin modal / auth state
+  const [adminPassword, setAdminPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [confirmationCode, setConfirmationCode] = useState('');
+  const [showCode, setShowCode] = useState(false);
+  const [resetReason, setResetReason] = useState('');
+  const [confirmReset, setConfirmReset] = useState('');
+  const [modalAction, setModalAction] = useState(null); // 'start' | 'stop' | 'reset' | 'finalize'
+  // Admin authentication & reset form state (handled above)
 
   // Check if user is admin
   const isAdmin = user?.role?.toLowerCase() === 'admin';
@@ -131,6 +140,7 @@ const ElectionLifecycleControls = ({ election, onElectionUpdate }) => {
 
   const openPasswordModal = (action) => {
     setAdminPassword('');
+    setModalAction(action);
     if (action === 'reset') {
       setShowResetModal(true);
     } else if (action === 'finalize') {
@@ -331,9 +341,8 @@ const ElectionLifecycleControls = ({ election, onElectionUpdate }) => {
                   </button>
                   <button
                     onClick={() => {
-                      const action = showPasswordModal;
-                      if (action === 'start') handleStatusChange('Open');
-                      else if (action === 'stop') handleStatusChange('Closed');
+                      if (modalAction === 'start') handleStatusChange('Open');
+                      else if (modalAction === 'stop') handleStatusChange('Closed');
                     }}
                     disabled={loading || !adminPassword}
                     className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"

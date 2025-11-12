@@ -20,9 +20,13 @@ import {
   Unlock
 } from 'lucide-react';
 
+import { maintenanceAPI } from '../../../services/api/api';
+import { useGlobalUI } from '../../common';
+
 const ElectionBackup = ({ electionId, election }) => {
   const [backups, setBackups] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { showLoader, hideLoader, showToast } = useGlobalUI();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showRestoreModal, setShowRestoreModal] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState(null);
@@ -131,58 +135,60 @@ const ElectionBackup = ({ electionId, election }) => {
   useEffect(() => {
     const fetchBackups = async () => {
       setLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setBackups(mockBackups);
-      setLoading(false);
+      try {
+        const list = await maintenanceAPI.listBackups();
+        // expect array
+        setBackups(Array.isArray(list) ? list : (list.backups || []));
+      } catch (err) {
+        console.error('Failed to fetch backups, falling back to mock:', err);
+        setBackups(mockBackups);
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchBackups();
   }, [electionId]);
 
   const handleCreateBackup = async () => {
-    const backup = {
-      id: Date.now(),
-      name: backupSettings.name,
-      description: backupSettings.description,
-      type: 'full',
-      size: '0 MB',
-      createdAt: new Date().toISOString(),
-      status: 'in_progress',
-      includes: {
-        votes: backupSettings.includeVotes,
-        candidates: backupSettings.includeCandidates,
-        voters: backupSettings.includeVoters,
-        settings: backupSettings.includeSettings,
-        analytics: backupSettings.includeAnalytics
-      },
-      encryption: backupSettings.encryption,
-      compression: backupSettings.compression,
-      downloadUrl: null,
-      checksum: null
-    };
+    // Call maintenance API to create a backup
+    try {
+      showLoader('Creating backup...');
+      const payload = {
+        name: backupSettings.name,
+        description: backupSettings.description,
+        include: {
+          votes: backupSettings.includeVotes,
+          candidates: backupSettings.includeCandidates,
+          voters: backupSettings.includeVoters,
+          settings: backupSettings.includeSettings,
+          analytics: backupSettings.includeAnalytics
+        },
+        encryption: backupSettings.encryption,
+        compression: backupSettings.compression,
+        electionId
+      };
 
-    setBackups(prev => [backup, ...prev]);
-    setShowCreateModal(false);
-    
-    // Simulate backup process
-    setTimeout(() => {
-      setBackups(prev => prev.map(b => 
-        b.id === backup.id 
-          ? { 
-              ...b, 
-              status: 'completed', 
-              size: '2.3 MB',
-              downloadUrl: '/api/backups/' + backup.id + '/download',
-              checksum: 'd4e5f6a1b2c3...'
-            }
-          : b
-      ));
-    }, 3000);
+      const created = await maintenanceAPI.createBackup(payload);
+      // server may return created backup object
+      setBackups(prev => [created, ...prev]);
+      setShowCreateModal(false);
+      showToast('Backup created', 'success');
+    } catch (err) {
+      console.error('Failed to create backup:', err);
+      showToast('Failed to create backup', 'error');
+    } finally {
+      hideLoader();
+    }
   };
 
   const handleDownloadBackup = (backup) => {
-    // In real implementation, this would trigger the download
-    console.log('Downloading backup:', backup.name);
+    if (backup.downloadUrl) {
+      // open the download URL in a new tab
+      window.open(backup.downloadUrl, '_blank');
+    } else {
+      showToast('No download available for this backup', 'info');
+    }
   };
 
   const handleRestoreBackup = (backup) => {
@@ -191,10 +197,22 @@ const ElectionBackup = ({ electionId, election }) => {
   };
 
   const confirmRestore = () => {
-    // In real implementation, this would restore the backup
-    console.log('Restoring backup:', selectedBackup.name);
-    setShowRestoreModal(false);
-    setSelectedBackup(null);
+    const doRestore = async () => {
+      try {
+        showLoader('Restoring backup...');
+        await maintenanceAPI.restoreBackup(selectedBackup.folder || selectedBackup.id || selectedBackup.name);
+        showToast('Restore initiated', 'success');
+      } catch (err) {
+        console.error('Restore failed:', err);
+        showToast('Restore failed', 'error');
+      } finally {
+        hideLoader();
+        setShowRestoreModal(false);
+        setSelectedBackup(null);
+      }
+    };
+
+    doRestore();
   };
 
   const handleDeleteBackup = (backupId) => {

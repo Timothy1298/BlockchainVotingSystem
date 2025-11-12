@@ -15,4 +15,6 @@ module.exports = {
   skipDb: get('SKIP_DB', 'false') === 'true',
   blockchainMock: get('BLOCKCHAIN_MOCK', 'false') === 'true',
   logLevel: get('LOG_LEVEL', 'info'),
+  // Client origin can be a single origin or comma-separated list
+  clientOrigin: (get('CLIENT_ORIGIN', 'http://localhost:5173') || '').split(',').map(s => s.trim()).filter(Boolean),
 };

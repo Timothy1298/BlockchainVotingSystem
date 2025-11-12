@@ -1,3 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Bringing up local dev stack (MongoDB + Ganache + Server) using docker-compose..."
+docker compose up -d --build
+
+echo "Waiting for server to start..."
+sleep 5
+echo "You can view logs with: docker compose logs -f server"
+
+echo "If you prefer running the client locally, start the client in a separate terminal: cd client && npm run dev"
 #!/bin/bash
 
 # Blockchain Voting System - Complete Startup Script

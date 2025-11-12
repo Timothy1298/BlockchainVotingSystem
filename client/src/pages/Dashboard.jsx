@@ -3,7 +3,7 @@ import React, { useContext, useState, useEffect, useMemo, memo } from "react";
 import { useNavigate, Link, useLocation } from "react-router-dom"; 
 import { DashboardLayout } from "../layouts/DashboardLayout";
 import { AuthContext } from "../contexts/auth";
-import { useElections } from "../hooks/elections";
+import { useElections, useFinalResults } from "../hooks/elections";
 import { useSystemMonitoring } from "../hooks/system";
 import { useQuery } from '@tanstack/react-query';
 import { usersAPI } from '../services/api';
@@ -27,11 +27,26 @@ import {
 
 // Placeholder components if you haven't implemented them yet
 const VotePieChart = memo(({ data }) => (
-  <div className="h-full flex items-center justify-center bg-gray-800 rounded-lg border border-gray-700">
-    <div className="text-center">
-      <PieChart className="w-12 h-12 text-sky-400 mx-auto mb-2" />
-      <p className="text-gray-400">Pie Chart Placeholder</p>
-      <p className="text-xs text-gray-500">Data: {data?.length || 0} items</p>
+  <div className="h-full flex items-center justify-center bg-gray-800 rounded-lg border border-gray-700 p-3">
+    <div className="w-full">
+      <div className="text-sm text-gray-400 mb-2">Vote Distribution</div>
+      <div className="space-y-2">
+        {(data || []).map((d, i) => (
+          <div key={d.id || d.label || i} className="flex items-center gap-3">
+            <div className="w-2 h-6" style={{ background: ['#38bdf8','#34d399','#a78bfa','#f97316','#ef4444'][i % 5] }} />
+            <div className="flex-1">
+              <div className="flex justify-between">
+                <div className="text-white text-sm font-medium">{d.label || d.name}</div>
+                <div className="text-gray-400 text-xs">{d.value ?? d.votes ?? 0}</div>
+              </div>
+              <div className="w-full bg-gray-700 h-2 rounded mt-1 overflow-hidden">
+                <div className="h-2 bg-sky-400" style={{ width: `${Math.min(100, d.percentage ?? 0)}%` }} />
+              </div>
+            </div>
+          </div>
+        ))}
+        {(data || []).length === 0 && <div className="text-gray-500">No results available yet.</div>}
+      </div>
     </div>
   </div>
 ));
@@ -39,11 +54,21 @@ const VotePieChart = memo(({ data }) => (
 VotePieChart.displayName = 'VotePieChart';
 
 const VoteBarChart = memo(({ data }) => (
-  <div className="h-full flex items-center justify-center bg-gray-800 rounded-lg border border-gray-700">
-    <div className="text-center">
-      <BarChart3 className="w-12 h-12 text-sky-400 mx-auto mb-2" />
-      <p className="text-gray-400">Bar Chart Placeholder</p>
-      <p className="text-xs text-gray-500">Data: {data?.length || 0} items</p>
+  <div className="h-full bg-gray-800 rounded-lg border border-gray-700 p-4">
+    <div className="text-sm text-gray-400 mb-2">Vote Tally</div>
+    <div className="space-y-3">
+      {(data || []).map((d, i) => (
+        <div key={d.id || d.label || i}>
+          <div className="flex justify-between items-center text-sm text-gray-300 mb-1">
+            <div className="truncate max-w-[65%]">{d.label || d.name}</div>
+            <div className="font-mono text-xs text-gray-400">{d.value ?? d.votes ?? 0}</div>
+          </div>
+          <div className="w-full bg-gray-700 h-3 rounded overflow-hidden">
+            <div className="h-3 bg-emerald-400" style={{ width: `${Math.min(100, d.percentage ?? 0)}%` }} />
+          </div>
+        </div>
+      ))}
+      {(data || []).length === 0 && <div className="text-gray-500">No results to display.</div>}
     </div>
   </div>
 ));
@@ -94,13 +119,24 @@ const Dashboard = memo(() => {
   // Process data from hooks with proper null checks - memoized for performance
   const elections = useMemo(() => Array.isArray(electionsData) ? electionsData : [], [electionsData]);
   
-  const overview = useMemo(() => ({
-    active: elections.filter(e => e.status === 'Open'),
-    upcoming: elections.filter(e => e.status === 'Setup'),
-    completed: elections.filter(e => e.status === 'Closed')
-  }), [elections]);
-  
-  const results = useMemo(() => elections.find(e => e.status === 'Closed') || null, [elections]);
+  // Normalize status handling to accept legacy and current enum values
+  const overview = useMemo(() => {
+    const norm = s => String(s || '').toLowerCase();
+    const activeStatuses = new Set(['open', 'active']);
+    const upcomingStatuses = new Set(['setup', 'upcoming']);
+    const completedStatuses = new Set(['closed', 'completed']);
+
+    return {
+      active: elections.filter(e => activeStatuses.has(norm(e.status))),
+      upcoming: elections.filter(e => upcomingStatuses.has(norm(e.status))),
+      completed: elections.filter(e => completedStatuses.has(norm(e.status)))
+    };
+  }, [elections]);
+
+  const results = useMemo(() => {
+    const norm = s => String(s || '').toLowerCase();
+    return elections.find(e => ['closed', 'finalized', 'completed'].includes(norm(e.status))) || null;
+  }, [elections]);
   
   const voterStats = useMemo(() => {
     if (!usersData?.users) return { total: 0, cast: 0, rate: 0 };
@@ -116,6 +152,14 @@ const Dashboard = memo(() => {
   const logs = useMemo(() => systemData?.logs || [], [systemData]);
   const systemAlerts = useMemo(() => systemData?.alerts || [], [systemData]);
   const notifications = useMemo(() => systemData?.notifications || [], [systemData]);
+
+  // Choose an election to show analytics for (priority: focused -> active -> completed)
+  const chartElectionId = (focusedElection && (focusedElection._id || focusedElection.id)) || (overview.active?.[0]?._id) || (overview.completed?.[0]?._id) || null;
+  const { data: finalResultsData, isLoading: finalResultsLoading } = useFinalResults(chartElectionId);
+  const chartData = useMemo(() => {
+    const results = finalResultsData?.results || [];
+    return results.map(r => ({ id: r.id || r._id, label: r.name, value: r.votes ?? r.value ?? 0, percentage: Number(r.percentage) || 0 }));
+  }, [finalResultsData]);
 
   // Handle system monitoring errors gracefully
   if (systemError) {
@@ -200,7 +244,7 @@ const Dashboard = memo(() => {
       {/* SYSTEM STATUS & PERFORMANCE DASHBOARD */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <SystemStatus />
-        <PerformanceMonitor />
+        
       </div>
 
       {/* MAIN DASHBOARD GRID */}
@@ -272,25 +316,29 @@ const Dashboard = memo(() => {
               </div>
             )}
             
-            {/* Live Results/Analytics (Combined) */}
-            {results?.chartData?.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="h-72">
-                        <h3 className="text-lg font-semibold text-sky-400 mb-3">Vote Distribution by Candidate</h3>
-                        <VotePieChart data={results.chartData} />
-                    </div>
-                    <div className="h-72">
-                        <h3 className="text-lg font-semibold text-sky-400 mb-3">Vote Tally Comparison</h3>
-                        <VoteBarChart data={results.chartData} />
-                    </div>
-                </div>
-            ) : (
-                <div className="h-64 flex items-center justify-center bg-gray-700/50 rounded-lg">
-                    <div className="text-gray-400 text-lg font-medium animate-pulse">
-                        Awaiting data for active elections...
-                    </div>
-                </div>
-            )}
+      {/* Live Results/Analytics (Combined) */}
+      {finalResultsLoading ? (
+        <div className="h-64 flex items-center justify-center bg-gray-700/50 rounded-lg">
+        <div className="text-gray-400 text-lg font-medium animate-pulse">Loading election results...</div>
+        </div>
+      ) : (chartData && chartData.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="h-72">
+            <h3 className="text-lg font-semibold text-sky-400 mb-3">Vote Distribution by Candidate</h3>
+            <VotePieChart data={chartData} />
+          </div>
+          <div className="h-72">
+            <h3 className="text-lg font-semibold text-sky-400 mb-3">Vote Tally Comparison</h3>
+            <VoteBarChart data={chartData} />
+          </div>
+        </div>
+      ) : (
+        <div className="h-64 flex items-center justify-center bg-gray-700/50 rounded-lg">
+          <div className="text-gray-400 text-lg font-medium animate-pulse">
+            Awaiting data for active elections...
+          </div>
+        </div>
+      ))}
 
             {/* Election Overview with Quick Links */}
             <div className="pt-4">

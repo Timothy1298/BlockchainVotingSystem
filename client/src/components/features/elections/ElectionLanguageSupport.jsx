@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { useGlobalUI } from '../../common';
+import { configAPI } from '../../../services/api/api';
 import { 
   Globe, 
   Languages, 
@@ -20,6 +22,7 @@ import {
 const ElectionLanguageSupport = ({ electionId, election }) => {
   const [languages, setLanguages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { showLoader, hideLoader, showToast } = useGlobalUI ? useGlobalUI() : { showLoader: () => {}, hideLoader: () => {}, showToast: () => {} };
   const [activeLanguage, setActiveLanguage] = useState('en');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -174,7 +177,22 @@ const ElectionLanguageSupport = ({ electionId, election }) => {
   useEffect(() => {
     const fetchLanguages = async () => {
       setLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      try {
+        // Try to fetch election-specific settings which may include localization
+        if (electionId) {
+          const data = await configAPI.getElectionSettings(electionId);
+          const loc = data?.election?.localization || data?.localization || null;
+          if (loc && Array.isArray(loc.languages)) {
+            setLanguages(loc.languages);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('No localization found on server or failed to fetch:', err?.message || err);
+      }
+
+      // fallback to mock
       setLanguages(mockLanguages);
       setLoading(false);
     };
@@ -197,7 +215,7 @@ const ElectionLanguageSupport = ({ electionId, election }) => {
       lastUpdated: new Date().toISOString()
     };
 
-    setLanguages(prev => [...prev, language]);
+  setLanguages(prev => [...prev, language]);
     setShowAddModal(false);
     setNewLanguage({
       code: '',
@@ -206,6 +224,20 @@ const ElectionLanguageSupport = ({ electionId, election }) => {
       isRTL: false,
       enabled: true
     });
+  };
+
+  const handleSaveLocalization = async () => {
+    try {
+      showLoader('Saving localization...');
+      const payload = { electionId, languages };
+      await configAPI.setLocalization(payload);
+      showToast('Localization saved', 'success');
+    } catch (err) {
+      console.error('Failed to save localization:', err);
+      showToast('Failed to save localization', 'error');
+    } finally {
+      hideLoader();
+    }
   };
 
   const handleEditLanguage = (language) => {
@@ -273,13 +305,22 @@ const ElectionLanguageSupport = ({ electionId, election }) => {
           <h2 className="text-2xl font-bold text-white">Multi-Language Support</h2>
           <p className="text-gray-400">Manage translations and language settings</p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add Language
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSaveLocalization}
+            className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors"
+          >
+            <Save className="w-4 h-4" />
+            Save
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Language
+          </button>
+        </div>
       </div>
 
       {/* Language Statistics */}
