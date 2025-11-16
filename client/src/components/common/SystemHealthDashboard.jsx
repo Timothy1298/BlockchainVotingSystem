@@ -40,10 +40,21 @@ const SystemHealthDashboard = () => {
         })
       ]);
 
+      // Normalize commonly expected fields (cpu/memory) from a few possible shapes
+      const cpuUsage = systemHealth?.cpuUsage ?? systemHealth?.system?.cpuUsage ?? systemHealth?.system?.metrics?.cpu?.usage ?? 0;
+      const memoryUsage = systemHealth?.memoryUsage ?? systemHealth?.system?.memoryUsage ?? systemHealth?.system?.metrics?.memory?.usage ?? 0;
+
+      const normalizedSystem = {
+        ...systemHealth,
+        cpuUsage,
+        memoryUsage,
+        system: systemHealth?.system || {}
+      };
+
       setHealthData({
-        system: systemHealth,
+        system: normalizedSystem,
         blockchain: blockchainHealth,
-        alerts: systemHealth.alerts,
+        alerts: systemHealth?.alerts || normalizedSystem?.alerts || { critical: 0, high: 0, medium: 0 },
         lastChecked: new Date()
       });
     } catch (error) {
@@ -63,7 +74,7 @@ const SystemHealthDashboard = () => {
 
   useEffect(() => {
     fetchHealthData();
-    const interval = setInterval(fetchHealthData, 30000); // Refresh every 30 seconds
+    const interval = setInterval(fetchHealthData, 3 * 60 * 1000); // Refresh every 3 minutes
     return () => clearInterval(interval);
   }, []);
 
@@ -259,7 +270,6 @@ const SystemHealthDashboard = () => {
             {healthData.system?.system?.recentLogs || 0}
           </div>
         </div>
-
         <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
           <div className="flex items-center gap-2 mb-2">
             <Clock className="w-4 h-4 text-yellow-400" />
@@ -271,6 +281,44 @@ const SystemHealthDashboard = () => {
         </div>
       </div>
 
+      {/* CPU / Memory bars & Node list */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm text-gray-400">CPU Usage</div>
+            <div className="text-sm text-white">{Math.round((healthData.system?.cpuUsage || 0))}%</div>
+          </div>
+          <div className="w-full bg-gray-700 h-3 rounded overflow-hidden">
+            <div className="h-3 bg-sky-500" style={{ width: `${Math.min(100, healthData.system?.cpuUsage || 0)}%` }} />
+          </div>
+        </div>
+
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm text-gray-400">Memory Usage</div>
+            <div className="text-sm text-white">{Math.round((healthData.system?.memoryUsage || 0))}%</div>
+          </div>
+          <div className="w-full bg-gray-700 h-3 rounded overflow-hidden">
+            <div className="h-3 bg-emerald-500" style={{ width: `${Math.min(100, healthData.system?.memoryUsage || 0)}%` }} />
+          </div>
+        </div>
+
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm text-gray-400">Nodes</div>
+            <div className="text-sm text-white">{(healthData.blockchain?.nodes || 0)}</div>
+          </div>
+          <ul className="text-sm text-gray-300 space-y-2 max-h-36 overflow-y-auto">
+            {(healthData.blockchain?.nodesList || []).length === 0 && <li className="text-gray-500">No nodes data</li>}
+            {(healthData.blockchain?.nodesList || []).map((n,i)=>(
+              <li key={i} className="flex items-center justify-between">
+                <span>{n.name || `Node ${i+1}`}</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${n.online ? 'bg-green-700 text-green-200' : 'bg-red-800 text-red-200'}`}>{n.online ? 'online' : 'offline'}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
       {/* Alerts */}
       {healthData.alerts && (
         <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">

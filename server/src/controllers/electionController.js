@@ -863,25 +863,45 @@ exports.getFinalResults = async (req, res) => {
       return res.status(400).json({ message: 'Results not available for elections in ' + election.status + ' status' });
     }
     
-    // Calculate results from candidates if not already finalized
+    // Debug: log the raw shape so we can spot malformed data quickly
+    try {
+      console.debug(`[getFinalResults] electionId=${election._id} resultsType=${typeof election.results} resultsIsArray=${Array.isArray(election.results)} candidatesCount=${(election.candidates||[]).length}`);
+    } catch (dbgErr) { /* ignore debug errors */ }
+
+    // Normalize results: election.results may be stored as an object, empty object, or array
     let results = election.results;
-    if (!results && election.candidates) {
-      results = election.candidates.map(candidate => ({
-        id: candidate._id,
-        name: candidate.name,
-        seat: candidate.seat,
-        party: candidate.party,
-        votes: candidate.votes || 0,
-        chainCandidateId: candidate.chainCandidateId
-      }));
+    // If results is not an array, try to derive from candidates or convert object -> array
+    if (!Array.isArray(results)) {
+      if (Array.isArray(election.candidates) && election.candidates.length > 0) {
+        results = election.candidates.map(candidate => ({
+          id: candidate._id,
+          name: candidate.name,
+          seat: candidate.seat,
+          party: candidate.party,
+          votes: candidate.votes || 0,
+          chainCandidateId: candidate.chainCandidateId
+        }));
+      } else if (results && typeof results === 'object' && Object.keys(results).length > 0) {
+        // Convert keyed results object into array
+        results = Object.keys(results).map(k => ({
+          id: results[k].id || k,
+          name: results[k].name || results[k].label || '',
+          seat: results[k].seat || '',
+          party: results[k].party || '',
+          votes: results[k].votes || results[k].value || 0,
+          chainCandidateId: results[k].chainCandidateId || results[k].chainId
+        }));
+      } else {
+        results = [];
+      }
     }
     
     const totalVotes = election.totalVotes || (results ? results.reduce((sum, r) => sum + (r.votes || 0), 0) : 0);
     
     // Calculate percentages
-    const resultsWithPercentages = results.map(result => ({
+    const resultsWithPercentages = (results || []).map(result => ({
       ...result,
-      percentage: totalVotes > 0 ? ((result.votes / totalVotes) * 100).toFixed(2) : 0
+      percentage: totalVotes > 0 ? ((Number(result.votes) / totalVotes) * 100).toFixed(2) : 0
     }));
     
     // Get blockchain verification data
@@ -892,7 +912,7 @@ exports.getFinalResults = async (req, res) => {
       finalizedAt: election.updatedAt
     };
     
-    res.json({
+    const payload = {
       electionId: election._id,
       title: election.title,
       description: election.description,
@@ -906,7 +926,11 @@ exports.getFinalResults = async (req, res) => {
       createdAt: election.createdAt,
       startsAt: election.startsAt,
       endsAt: election.endsAt
-    });
+    };
+
+    res.json(payload);
+    // Also return payload when called programmatically (e.g., exportResults)
+    return payload;
   } catch (err) {
     res.status(500).json({ message: 'Error fetching final results', error: err.message });
   }

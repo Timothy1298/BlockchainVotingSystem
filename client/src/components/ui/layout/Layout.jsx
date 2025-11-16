@@ -14,7 +14,7 @@ import { AuthContext } from '../../../contexts/auth';
 
 
 // Sidebar
-export const Sidebar = ({ activeTab, onTabChange, mobileOpen = false, onClose }) => {
+export const Sidebar = ({ activeTab, onTabChange, mobileOpen = false, onClose, compact = false }) => {
   const { user } = useContext(AuthContext);
 
   // Use Shield icon for Admin/Voters section for a security theme
@@ -50,24 +50,30 @@ export const Sidebar = ({ activeTab, onTabChange, mobileOpen = false, onClose })
     <aside
       role="navigation"
       aria-label="Main navigation"
-      // Stronger dark background and border color
-      className="hidden md:flex fixed top-0 left-0 h-screen w-64 bg-gray-900/90 backdrop-blur-xl border-r border-gray-700 flex-col p-6 z-50"
+      className={`hidden md:flex fixed top-0 left-0 h-screen ${compact ? 'w-20' : 'w-64'} bg-gray-900/90 backdrop-blur-xl border-r border-gray-700 flex-col p-4 ${compact ? 'pt-6' : 'p-6'} z-50`}
     >
-      {/* Logo: Prominent sky blue accent */}
-      <h1 className="text-2xl font-extrabold text-sky-400 mb-12 tracking-wider">
-        ChainVote <span className="text-xs align-top font-light text-sky-600">DApp</span>
-      </h1>
-      <nav className="flex flex-col gap-3" aria-label="Sidebar links">
+      {/* Logo: compact when mini-nav is enabled */}
+      {!compact ? (
+        <h1 className="text-2xl font-extrabold text-sky-400 mb-12 tracking-wider">
+          ChainVote <span className="text-xs align-top font-light text-sky-600">DApp</span>
+        </h1>
+      ) : (
+        <div className="mb-6 flex items-center justify-center">
+          <span className="text-sky-400 font-bold">CV</span>
+        </div>
+      )}
+      <nav className="flex flex-col gap-1" aria-label="Sidebar links">
         {tabs.map(({ id, label, icon: Icon, to }) => (
           <NavLink
             key={id}
             to={to}
             onClick={() => onTabChange?.(id)}
-            className={linkClass}
+            className={({isActive}) => `flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition duration-200 ${isActive ? 'bg-sky-600 text-white shadow-lg shadow-sky-900/50' : 'text-gray-300 hover:bg-gray-700/50 hover:text-white'}`}
             aria-current={activeTab === id ? 'page' : undefined}
+            title={label}
           >
             <Icon className="w-5 h-5" />
-            {label}
+            {!compact && label}
           </NavLink>
         ))}
       </nav>
@@ -142,7 +148,7 @@ export const Sidebar = ({ activeTab, onTabChange, mobileOpen = false, onClose })
 };
 
 // Topbar
-export const Topbar = ({ title, onSearch, onHamburgerClick, showHamburger = false, user, onLogout }) => {
+export const Topbar = ({ title, onSearch, onHamburgerClick, showHamburger = false, user, onLogout, onToggleCompact, compact=false }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [walletAddress, setWalletAddress] = useState(null);
   const [walletError, setWalletError] = useState(null);
@@ -215,6 +221,15 @@ export const Topbar = ({ title, onSearch, onHamburgerClick, showHamburger = fals
       </div>
 
       <div className="flex items-center gap-4">
+        {/* Compact sidebar toggle */}
+        <button
+          aria-label="Toggle compact sidebar"
+          onClick={() => onToggleCompact?.()}
+          className="hidden md:inline-flex items-center justify-center p-2 rounded-md text-sky-400 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-sky-500 transition"
+        >
+          {/* simple icon: show small square */}
+          <div className={`w-5 h-5 rounded-sm ${compact ? 'bg-sky-400' : 'bg-gray-600/40'}`} />
+        </button>
         {/* Search Input */}
         <div className="relative hidden sm:block">
             <input
@@ -321,6 +336,7 @@ export const DashboardLayout = ({
   onLogout,
 }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [compactSidebar, setCompactSidebar] = useState(false);
 
   // Note: Using the provided props as fallback in case context is not fully mocked/implemented
   const auth = useContext(AuthContext);
@@ -335,9 +351,10 @@ export const DashboardLayout = ({
         onTabChange={onTabChange}
         mobileOpen={mobileOpen}
         onClose={() => setMobileOpen(false)}
+        compact={compactSidebar}
       />
 
-      <div className="md:ml-64 flex-1">
+      <div className={`${compactSidebar ? 'md:ml-20' : 'md:ml-64'} flex-1`}> 
         <Topbar
           title={title}
           onSearch={onSearch}
@@ -345,11 +362,20 @@ export const DashboardLayout = ({
           showHamburger={true}
           user={loggedUser}
           onLogout={logoutFn}
+          onToggleCompact={() => setCompactSidebar(s => !s)}
+          compact={compactSidebar}
         />
         {/* Main content area, starts below the fixed Topbar */}
         <main className="pt-20 px-6 pb-10 min-h-[calc(100vh-80px)]">
             {children}
         </main>
+        {/* Footer */}
+        <footer className="px-6 py-4 border-t border-gray-800 text-sm text-gray-400">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <div>ChainVote DApp — v{process.env.REACT_APP_VERSION || 'dev'}</div>
+            <div>Build: {process.env.REACT_APP_BUILD_TS || new Date().toISOString()}</div>
+          </div>
+        </footer>
       </div>
     </div>
   );

@@ -24,6 +24,7 @@ import StatisticsDashboard from '../../components/candidates/StatisticsDashboard
 import FilterControls from '../../components/candidates/FilterControls';
 import MetaMaskAccounts from '../../components/candidates/MetaMaskAccounts';
 import CandidateCard from '../../components/candidates/CandidateCard';
+import CandidateDetailsModal from '../../components/candidates/CandidateDetailsModal';
 import CandidateForm from '../../components/candidates/CandidateForm';
 import VotingModal from '../../components/candidates/VotingModal';
 
@@ -71,6 +72,8 @@ const CandidatesContent = memo(() => {
   });
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [selectedElection, setSelectedElection] = useState(null);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [detailsCandidate, setDetailsCandidate] = useState(null);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
 
@@ -117,7 +120,7 @@ const CandidatesContent = memo(() => {
   const [bulkResults, setBulkResults] = React.useState(null);
 
   // Filters
-  const { filteredCandidates } = useFilters(candidates);
+  const { filteredCandidates, filterElection } = useFilters(candidates);
 
   const isAdmin = user?.role === 'admin';
 
@@ -341,15 +344,22 @@ const CandidatesContent = memo(() => {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Header */}
+        {/* Header - Level 1 election title */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
               <Users className="w-8 h-8 text-blue-400" />
-              Global Candidates Management
+              {filterElection ? (
+                (() => {
+                  const el = elections.find(e => e._id === filterElection);
+                  return el ? `${el.title} - Candidates` : 'Candidates';
+                })()
+              ) : (
+                'All Candidates'
+              )}
             </h1>
             <p className="text-gray-400 text-sm mt-1">
-              Manage all candidates across all elections
+              Select the correct election and choose your candidate
             </p>
           </div>
         </div>
@@ -369,18 +379,25 @@ const CandidatesContent = memo(() => {
         />
 
         {/* Candidates Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
           {filteredCandidates.map((candidate, index) => (
             <CandidateCard
               key={`${candidate.electionId}-${candidate.id}-${index}`}
               candidate={candidate}
               index={index}
-              onEdit={openEditModal}
+              onView={(c) => { setDetailsCandidate(c); setShowDetailsModal(true); }}
               onDelete={handleDeleteCandidate}
-              onVote={openVoteModal}
+              onVote={(c) => { setSelectedCandidate(c); openVoteModal(c); }}
             />
           ))}
         </div>
+
+        <CandidateDetailsModal
+          isOpen={showDetailsModal}
+          onClose={() => { setShowDetailsModal(false); setDetailsCandidate(null); }}
+          candidate={detailsCandidate}
+          onSelect={(c) => { setSelectedCandidate(c); openVoteModal(c); }}
+        />
 
         {/* Empty State */}
         {filteredCandidates.length === 0 && candidates.length > 0 && (

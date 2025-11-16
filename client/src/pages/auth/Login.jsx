@@ -9,6 +9,30 @@ import { useGlobalUI } from '../../components/common';
 const Login = () => {
   const { login } = useContext(AuthContext);
   const { showToast } = useGlobalUI();
+  // If redirected here after a 401, show a clear message
+  React.useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('auth_message');
+      if (raw) {
+        const msg = JSON.parse(raw);
+        if (msg && msg.text) {
+          showToast(msg.text, 'error');
+          setMessage({ type: 'error', text: msg.text });
+        }
+        sessionStorage.removeItem('auth_message');
+      } else {
+        // Also read query param unauth=1 and show a generic message
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('unauth')) {
+          const text = 'You were signed out. Please login again.';
+          showToast(text, 'error');
+          setMessage({ type: 'error', text });
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
   const [formData, setFormData] = useState({
     email: "",
     password: "",

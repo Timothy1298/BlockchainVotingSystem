@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   BarChart3, 
@@ -15,11 +15,51 @@ import {
   Award,
   Eye,
   Copy,
-  ExternalLink
+  ExternalLink,
+  RefreshCw,
+  PieChart as LucidePie
 } from 'lucide-react';
 import { electionsAPI } from '../../services/api';
 import { useElections } from '../../hooks/elections';
 import { useGlobalUI } from '../../components/common';
+
+import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Filler } from 'chart.js';
+import { Pie, Bar, Line } from 'react-chartjs-2';
+import useResultsSocket from '../../hooks/useResultsSocket';
+
+// Register Chart.js components including Filler for area/line fills
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Filler);
+
+const SmallPieChart = ({ data }) => {
+  const labels = (data || []).map(d => d.label || d.name);
+  const values = (data || []).map(d => Number(d.value ?? d.votes ?? 0));
+  const chartData = {
+    labels,
+    datasets: [{
+      data: values,
+      backgroundColor: ['#38bdf8','#34d399','#a78bfa','#f97316','#ef4444','#f59e0b','#60a5fa'],
+      hoverOffset: 6
+    }]
+  };
+  const options = { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#9CA3AF' } }, title: { display: false } } };
+  return <div className="h-56"><Pie data={chartData} options={options} /></div>;
+};
+
+const SmallBarChart = ({ data }) => {
+  const labels = (data || []).map(d => d.label || d.name);
+  const values = (data || []).map(d => Number(d.value ?? d.votes ?? 0));
+  const chartData = { labels, datasets: [{ label: 'Votes', data: values, backgroundColor: '#06b6d4' }] };
+  const options = { responsive: true, scales: { x: { ticks: { color: '#9CA3AF' } }, y: { ticks: { color: '#9CA3AF' } } }, plugins: { legend: { display: false } } };
+  return <div className="h-56"><Bar data={chartData} options={options} /></div>;
+};
+
+const SmallTrendChart = ({ data }) => {
+  const labels = (data || []).map(p => p.time || p.label || '');
+  const values = (data || []).map(p => Number(p.votes || p.value || 0));
+  const chartData = { labels, datasets: [{ label: 'Tally', data: values, borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.15)', fill: true }] };
+  const options = { responsive: true, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#9CA3AF' } }, y: { ticks: { color: '#9CA3AF' } } } };
+  return <div className="h-40"><Line data={chartData} options={options} /></div>;
+};
 
 const Results = () => {
   const [selectedElection, setSelectedElection] = useState(null);
@@ -27,13 +67,26 @@ const Results = () => {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [showVerification, setShowVerification] = useState(false);
-  const { elections } = useElections();
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [nowTicks, setNowTicks] = useState(Date.now());
+  const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState('votes');
+  const [sortDir, setSortDir] = useState('desc');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const [filters, setFilters] = useState({});
+  const [highContrast, setHighContrast] = useState(false);
+  const [lastFetchError, setLastFetchError] = useState(null);
+  // useElections returns a react-query result; pull the `data` property which holds the elections list
+  const { data: electionsData } = useElections();
   const { showToast } = useGlobalUI();
 
-  // Filter elections that have results available
-  const electionsWithResults = (elections || []).filter(election => 
-    ['Open', 'Closed', 'Finalized'].includes(election.status)
-  );
+  // Filter elections that have results available (normalize status)
+  const electionsWithResults = (Array.isArray(electionsData) ? electionsData : []).filter(election => {
+    const s = String(election.status || '').toLowerCase();
+    return ['open', 'closed', 'finalized', 'completed'].includes(s);
+  });
 
   useEffect(() => {
     if (selectedElection) {
@@ -41,16 +94,89 @@ const Results = () => {
     }
   }, [selectedElection]);
 
+  // Tick for relative time display
+  useEffect(() => {
+    const iv = setInterval(() => setNowTicks(Date.now()), 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // Polling for real-time updates when enabled (5s)
+  useEffect(() => {
+    if (!autoRefresh || !selectedElection) return;
+    const iv = setInterval(() => {
+      fetchResults();
+    }, 5 * 1000);
+    return () => clearInterval(iv);
+  }, [autoRefresh, selectedElection]);
+
+  // WebSocket: subscribe to server-sent result updates if available
+  const handleSocketMessage = useCallback((data) => {
+    if (!data) return;
+    // If the server sends a full results payload
+    if (data.type === 'resultsUpdate' && data.results) {
+      setResults(prev => ({ ...prev, ...data }));
+      setLastUpdated(Date.now());
+      showToast('Results updated (live)');
+    }
+    // If the server signals a minimal refresh
+    if (data.type === 'refresh') {
+      fetchResults();
+    }
+  }, [showToast]);
+
+  const { connected: wsConnected } = useResultsSocket(selectedElection?._id, handleSocketMessage);
+
+  // build filtered/sorted/paginated candidate list
+  const candidatesList = useMemo(() => {
+    if (!results?.results) return [];
+    let list = (results.results || []).slice();
+    // search filter
+    if (search) {
+      const s = search.toLowerCase();
+      list = list.filter(c => (c.name || '').toLowerCase().includes(s) || (c.party || '').toLowerCase().includes(s));
+    }
+    // apply simple filters if available (faculty/region/seat)
+    if (filters.faculty) list = list.filter(c => (c.faculty || c.region || '').toLowerCase() === (filters.faculty||'').toLowerCase());
+    // sorting
+    list.sort((a,b)=>{
+      const dir = sortDir === 'asc' ? 1 : -1;
+      if (sortField === 'name') return dir * ((a.name||'').localeCompare(b.name||''));
+      if (sortField === 'percentage') return dir * ((Number(a.percentage||0)) - (Number(b.percentage||0)));
+      // default votes
+      return dir * ((Number(a.votes||0)) - (Number(b.votes||0)));
+    });
+    return list;
+  }, [results, search, sortField, sortDir, filters]);
+
+  const totalCandidates = candidatesList.length;
+  const totalPages = Math.max(1, Math.ceil(totalCandidates / pageSize));
+  const pageItems = candidatesList.slice((page-1)*pageSize, (page-1)*pageSize + pageSize);
+
   const fetchResults = async () => {
     if (!selectedElection) return;
     
     setLoading(true);
     try {
+      // Ensure we have an auth token; server endpoints under /api/elections require auth
+      const token = localStorage.getItem('token');
+      if (!token) {
+        showToast('Not authenticated. Please log in to view results.', 'error');
+        setLoading(false);
+        // redirect to login could be considered but keep UI in control
+        return;
+      }
+
       const resultsData = await electionsAPI.getFinalResults(selectedElection._id);
       setResults(resultsData);
+      setLastUpdated(Date.now());
     } catch (error) {
-      showToast('Failed to fetch results', 'error');
-      console.error('Error fetching results:', error);
+      // Surface useful diagnostic info for server/client errors
+      const serverMessage = error?.response?.data?.message;
+      const status = error?.response?.status;
+      const errMsg = serverMessage || error?.message || 'Unknown error';
+      console.error('Error fetching results:', { status, message: errMsg, error });
+      setLastFetchError({ status, message: errMsg });
+      showToast(`Failed to fetch results${status ? ` (HTTP ${status})` : ''}: ${errMsg}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -131,7 +257,7 @@ const Results = () => {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={`p-6 space-y-6 ${highContrast ? 'high-contrast' : ''}`}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -139,19 +265,80 @@ const Results = () => {
           <p className="text-gray-400">View and export official election results</p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowVerification(!showVerification)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 text-blue-300 rounded-xl hover:bg-blue-600/30 transition-all duration-200"
-          >
-            <Shield className="w-4 h-4" />
-            Verification Data
-          </button>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 text-sm text-gray-300">
+              <input type="checkbox" checked={autoRefresh} onChange={e=>setAutoRefresh(e.target.checked)} /> Auto-refresh 5s
+            </label>
+            <button
+              onClick={() => setShowVerification(!showVerification)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 text-blue-300 rounded-xl hover:bg-blue-600/30 transition-all duration-200"
+              aria-pressed={showVerification}
+            >
+              <Shield className="w-4 h-4" />
+              Verification Data
+            </button>
+            <button
+              onClick={() => { if (selectedElection) fetchResults(); else showToast('Select an election first'); }}
+              className="flex items-center gap-2 px-3 py-2 bg-gray-800 rounded text-gray-200 border border-gray-700"
+              title="Manual refresh"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span className="text-xs text-gray-400">{lastUpdated ? `${Math.floor((nowTicks - lastUpdated)/1000)}s ago` : 'Never'}</span>
+            </button>
+            <div className="flex items-center gap-3 ml-2">
+              <div className="flex items-center gap-2 text-xs">
+                <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-400' : 'bg-red-500'}`} title={wsConnected ? 'WebSocket connected' : 'WebSocket not connected'} />
+                <span className="text-gray-400">WS: {wsConnected ? 'Live' : 'Offline'}</span>
+              </div>
+            </div>
+            <button
+              onClick={() => setHighContrast(h => !h)}
+              className="flex items-center gap-2 px-3 py-2 bg-gray-800 rounded text-gray-200 border border-gray-700"
+              title="Toggle high contrast"
+            >
+              HC
+            </button>
+          </div>
         </div>
       </div>
+      {lastFetchError && (
+        <div className="bg-red-900/70 text-white p-3 rounded-md">
+          <div className="flex items-center justify-between">
+            <div className="text-sm">Failed to fetch results: {lastFetchError.message} {lastFetchError.status ? `(HTTP ${lastFetchError.status})` : ''}</div>
+            <button onClick={() => setLastFetchError(null)} className="text-xs text-red-200 hover:text-white">Dismiss</button>
+          </div>
+        </div>
+      )}
 
       {/* Election Selection */}
       <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700/50">
         <h2 className="text-lg font-semibold text-white mb-4">Select Election</h2>
+        <div className="flex items-center gap-3 mb-4">
+          <select
+            value={selectedElection?._id || ''}
+            onChange={e => {
+              const id = e.target.value;
+              const found = (electionsWithResults || []).find(ev => String(ev._id) === String(id));
+              setSelectedElection(found || null);
+            }}
+            className="bg-gray-700 text-white p-2 rounded border border-gray-600"
+            aria-label="Select election"
+          >
+            <option value="">-- Choose an election --</option>
+            {electionsWithResults.map(ev => (
+              <option key={ev._id} value={ev._id}>{ev.title} ({String(ev.status).toUpperCase()})</option>
+            ))}
+          </select>
+
+          <button
+            onClick={() => { if (selectedElection) fetchResults(); else showToast('Select an election first'); }}
+            className="px-3 py-2 bg-gray-700 rounded border border-gray-600 text-sm text-gray-200"
+          >
+            Load
+          </button>
+        </div>
+
+        {/* Fallback grid of quick-select cards (click to select) */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {electionsWithResults.map((election) => (
             <motion.button
@@ -176,7 +363,7 @@ const Results = () => {
               <div className="flex items-center gap-4 text-xs text-gray-500">
                 <span className="flex items-center gap-1">
                   <Calendar className="w-3 h-3" />
-                  {new Date(election.startsAt).toLocaleDateString()}
+                  {election.startsAt ? new Date(election.startsAt).toLocaleDateString() : '—'}
                 </span>
                 <span className="flex items-center gap-1">
                   <Users className="w-3 h-3" />
@@ -267,6 +454,44 @@ const Results = () => {
               </div>
             </div>
 
+            {/* Winner Spotlight & Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-1">
+                {/* Winner Spotlight */}
+                {results?.results && results.results.length > 0 && (
+                  (() => {
+                    const sorted = (results.results || []).slice().sort((a,b)=>b.votes - a.votes);
+                    const leader = sorted[0];
+                    const second = sorted[1];
+                    const diff = leader && second ? (leader.votes - (second.votes||0)) : 0;
+                    return (
+                      <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700/50">
+                        <h4 className="text-sm text-gray-400">Leading Candidate</h4>
+                        <div className="mt-4 flex items-center gap-4">
+                          <div className="w-28 h-28 rounded-full bg-gray-700 overflow-hidden flex items-center justify-center text-white text-2xl font-bold">
+                            {leader?.photo ? <img src={leader.photo} alt={leader.name} className="w-full h-full object-cover" /> : (leader?.name||'?').split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="text-lg font-semibold text-white">{leader?.name}</div>
+                            <div className="text-sm text-gray-400">{leader?.party || 'Independent'}</div>
+                            <div className="mt-2 text-white font-mono text-xl">{leader?.votes || 0} votes</div>
+                            <div className="text-sm text-gray-400">{leader?.percentage || 0}% • +{diff} vs 2nd</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
+              <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <SmallPieChart data={results?.results} />
+                <SmallBarChart data={results?.results} />
+                <div className="md:col-span-2">
+                  <SmallTrendChart data={results?.trend || []} />
+                </div>
+              </div>
+            </div>
+
             {/* Results Table */}
             {loading ? (
               <div className="bg-gray-800/50 rounded-xl p-8 border border-gray-700/50">
@@ -278,71 +503,112 @@ const Results = () => {
             ) : results?.results?.length > 0 ? (
               <div className="bg-gray-800/50 rounded-xl border border-gray-700/50 overflow-hidden">
                 <div className="p-6 border-b border-gray-700/50">
-                  <h3 className="text-lg font-semibold text-white">Final Results</h3>
-                  <p className="text-sm text-gray-400">Official results after final tally</p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-white">Final Results</h3>
+                      <p className="text-sm text-gray-400">Official results after final tally</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <input value={search} onChange={e=>{ setSearch(e.target.value); setPage(1); }} placeholder="Search candidate..." className="bg-gray-700 text-white rounded px-3 py-2 text-sm" aria-label="Search candidates" />
+                      <select value={filters.faculty || ''} onChange={e=>setFilters(f=>({ ...f, faculty: e.target.value }))} className="bg-gray-700 text-white rounded px-3 py-2 text-sm">
+                        <option value="">All Faculties</option>
+                        {/* placeholder options when data absent */}
+                        <option value="Engineering">Engineering</option>
+                      </select>
+                      <select value={sortField} onChange={e=>setSortField(e.target.value)} className="bg-gray-700 text-white rounded px-3 py-2 text-sm">
+                        <option value="votes">Sort: Votes</option>
+                        <option value="name">Sort: Name</option>
+                        <option value="percentage">Sort: %</option>
+                      </select>
+                      <button onClick={()=>setSortDir(d=> d==='asc'?'desc':'asc')} className="px-3 py-1 bg-gray-700 rounded text-sm">{sortDir==='asc'?'Asc':'Desc'}</button>
+                    </div>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-gray-700/50">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Rank</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Candidate</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Party</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Seat</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Votes</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Percentage</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Blockchain ID</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sticky top-0 z-10">Rank</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sticky top-0 z-10">Candidate</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sticky top-0 z-10">Party</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sticky top-0 z-10">Seat</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sticky top-0 z-10">Votes</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sticky top-0 z-10">Percentage</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider sticky top-0 z-10">Blockchain ID</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-700/50">
-                      {results.results
-                        .sort((a, b) => b.votes - a.votes)
-                        .map((result, index) => (
-                        <tr key={result.id} className="hover:bg-gray-700/30 transition-colors">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              {index === 0 && <Award className="w-4 h-4 text-yellow-400 mr-2" />}
-                              <span className="text-sm font-medium text-white">#{index + 1}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-white">{result.name}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="text-sm text-gray-300">{result.party || 'Independent'}</span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="text-sm text-gray-300">{result.seat}</span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="text-sm font-medium text-white">{result.votes}</span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <div className="w-16 bg-gray-700 rounded-full h-2 mr-2">
-                                <div 
-                                  className="bg-blue-500 h-2 rounded-full" 
-                                  style={{ width: `${result.percentage}%` }}
-                                ></div>
+                      {pageItems.map((result, idx) => {
+                        const index = (page-1)*pageSize + idx;
+                        const status = index === 0 ? 'Leading' : index === 1 ? 'Second' : (result.votes === 0 ? 'Eliminated' : '');
+                        const explorerBase = results?.blockchainData?.explorerUrl || '/admin/blockchain-health';
+                        const txLink = result.transactionHash ? `${explorerBase}?tx=${result.transactionHash}` : explorerBase;
+                        return (
+                          <tr key={result.id || result._id || index} className="hover:bg-gray-700/30 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                {index === 0 && <Award className="w-4 h-4 text-yellow-400 mr-2" />}
+                                <span className="text-sm font-medium text-white">#{index + 1}</span>
+                                {status && <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-gray-700 text-gray-200">{status}</span>}
                               </div>
-                              <span className="text-sm text-gray-300">{result.percentage}%</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-mono text-gray-400">{result.chainCandidateId}</span>
-                              <button
-                                onClick={() => copyToClipboard(result.chainCandidateId)}
-                                className="text-gray-400 hover:text-white transition-colors"
-                              >
-                                <Copy className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-white font-bold overflow-hidden">
+                                  {result.photo ? <img src={result.photo} alt={result.name} className="w-full h-full object-cover" /> : (result.name||'?').split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="text-sm font-medium text-white">{result.name}</div>
+                                  <div className="text-xs text-gray-400">{result.email ? 'Voter-linked' : ''}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="text-sm text-gray-300">{result.party || 'Independent'}</span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="text-sm text-gray-300">{result.seat}</span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="text-sm font-medium text-white">{result.votes}</span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                <div className="w-16 bg-gray-700 rounded-full h-2 mr-2">
+                                  <div 
+                                    className="bg-blue-500 h-2 rounded-full" 
+                                    style={{ width: `${result.percentage}%` }}
+                                  ></div>
+                                </div>
+                                <span className="text-sm text-gray-300">{result.percentage}%</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center gap-2">
+                                <a href={txLink} target="_blank" rel="noreferrer" className="text-xs font-mono text-gray-400 hover:text-white">{result.chainCandidateId || result.transactionHash || '—'}</a>
+                                <button
+                                  onClick={() => copyToClipboard(result.chainCandidateId || result.transactionHash || '')}
+                                  className="text-gray-400 hover:text-white transition-colors"
+                                  aria-label="Copy blockchain id"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
+                </div>
+                {/* pagination controls */}
+                <div className="p-4 flex items-center justify-between bg-gray-900 border-t border-gray-700">
+                  <div className="text-sm text-gray-400">Showing {(page-1)*pageSize + 1}–{Math.min(page*pageSize, totalCandidates)} of {totalCandidates}</div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>setPage(p=>Math.max(1,p-1))} className="px-3 py-1 bg-gray-700 rounded text-sm">Prev</button>
+                    <div className="text-sm text-gray-300">Page {page} / {totalPages}</div>
+                    <button onClick={()=>setPage(p=>Math.min(totalPages,p+1))} className="px-3 py-1 bg-gray-700 rounded text-sm">Next</button>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -436,6 +702,31 @@ const Results = () => {
                 </div>
               </motion.div>
             )}
+
+            {/* Audit Trail */}
+            <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700/50 mt-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold text-white">Audit Trail</h3>
+                <div className="flex items-center gap-2">
+                  <button onClick={()=>handleExport('json')} disabled={exporting} className="px-3 py-1 bg-gray-700 rounded text-sm">Export JSON</button>
+                  <button onClick={()=>handleExport('csv')} disabled={exporting} className="px-3 py-1 bg-gray-700 rounded text-sm">Export CSV</button>
+                </div>
+              </div>
+              <div className="max-h-60 overflow-y-auto text-sm text-gray-300 border border-gray-700 rounded p-3">
+                { (results?.audit || results?.auditTrail || results?.logs || []).length === 0 && (
+                  <div className="text-gray-500">No audit entries available.</div>
+                )}
+                {(results?.audit || results?.auditTrail || results?.logs || []).map((a,i)=> (
+                  <div key={a._id || i} className="py-2 border-b border-gray-700/40">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs text-gray-400">{new Date(a.timestamp || a.time || Date.now()).toLocaleString()}</div>
+                      <div className="text-xs font-mono text-gray-500">{a.tx || a.transactionHash || a.chainId || '—'}</div>
+                    </div>
+                    <div className="text-sm text-gray-300">{a.message || a.action || JSON.stringify(a)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </motion.div>
         </AnimatePresence>
       )}

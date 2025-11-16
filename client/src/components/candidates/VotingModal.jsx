@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Vote, AlertTriangle, CheckCircle, User, Copy, ExternalLink } from 'lucide-react';
+import { Vote, AlertTriangle, User, Copy, ExternalLink } from 'lucide-react';
 import { useVotingContext } from '../../contexts/voters/VotingContext';
 import { useMetaMaskContext } from '../../contexts/blockchain/MetaMaskContext';
 import { useGlobalUI } from '../../components/common';
@@ -105,7 +105,7 @@ const VotingModal = ({ isOpen, onClose, selectedCandidate, candidates = [], elec
         >
           {/* Vote Confirmation */}
           <div className="flex items-center gap-2 mb-4">
-            <Vote className="w-5 h-5 text-green-400" />
+            <Vote className="w-5 h-5 text-blue-300" />
             <h3 id="voting-modal-title" className="text-lg font-semibold text-white">
               Cast Your Vote
             </h3>
@@ -118,7 +118,7 @@ const VotingModal = ({ isOpen, onClose, selectedCandidate, candidates = [], elec
             <p className="text-gray-500 text-xs mt-1">{selectedCandidate.electionTitle}</p>
             {isConnected && selectedAccount && (
               <div className="mt-2 pt-2 border-t border-gray-600">
-                <p className="text-green-400 text-xs">Voter: {selectedAccount.slice(0, 6)}...{selectedAccount.slice(-4)}</p>
+                <p className="text-blue-300 text-xs">Voter: {selectedAccount.slice(0, 6)}...{selectedAccount.slice(-4)}</p>
               </div>
             )}
           </div>
@@ -152,31 +152,31 @@ const VotingModal = ({ isOpen, onClose, selectedCandidate, candidates = [], elec
                   )}
                 </button>
                 <p className="text-gray-400 text-xs text-center">
-                  🔗 Connect your MetaMask wallet to vote
+                  Connect your MetaMask wallet to vote
                 </p>
               </div>
             ) : (
               <div className="p-3 bg-gray-700 rounded-lg border border-gray-600">
-                <div className="flex items-center gap-2 text-green-400">
-                  <CheckCircle className="w-4 h-4" />
+                <div className="flex items-center gap-2 text-blue-300">
+                  <ExternalLink className="w-4 h-4" />
                   <span className="font-medium">MetaMask Connected</span>
                 </div>
                 <p className="text-gray-300 text-sm mt-1">
                   Account: {selectedAccount ? `${selectedAccount.slice(0, 6)}...${selectedAccount.slice(-4)}` : 'Unknown'}
                 </p>
                 <p className="text-gray-400 text-xs mt-2">
-                  ✅ You can vote for one candidate per seat
+                  You can vote for one candidate per seat
                 </p>
               </div>
             )}
           </div>
 
-          <div className="mb-4 p-3 bg-amber-600/20 border border-amber-600/50 rounded-lg">
-            <div className="flex items-center gap-2 text-amber-300 text-sm">
+          <div className="mb-4 p-3 bg-gray-800/60 border border-gray-700 rounded-lg">
+            <div className="flex items-center gap-2 text-blue-300 text-sm">
               <AlertTriangle className="w-4 h-4" />
               <span className="font-medium">Voting Restriction</span>
             </div>
-            <p className="text-amber-200 text-xs mt-1">
+            <p className="text-gray-300 text-xs mt-1">
               You can only vote for one candidate per seat. Vote weight is always 1.
             </p>
           </div>
@@ -198,7 +198,7 @@ const VotingModal = ({ isOpen, onClose, selectedCandidate, candidates = [], elec
             <button
               onClick={handleVote}
               disabled={votingLoading || !isConnected}
-              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {votingLoading ? (
                 <>

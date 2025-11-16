@@ -1,6 +1,6 @@
-import React, { memo, useEffect, useState } from 'react';
+import React, { memo, useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Shield, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Users, Shield, AlertTriangle, CheckCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { DashboardLayout } from '../../layouts/DashboardLayout';
 import { AuthContext } from '../../contexts/auth';
 import { useGlobalUI } from '../../components/common';
@@ -103,9 +103,78 @@ const CandidatesContent = memo(() => {
   const [viewMode, setViewMode] = useState('table');
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditCandidate, setAuditCandidate] = useState(null);
-
+  const [seatOrderMode, setSeatOrderMode] = useState('alphabetical'); // 'alphabetical' | 'presidentFirst' | 'custom'
+  const [customSeatOrder, setCustomSeatOrder] = useState(''); // comma-separated seat names for custom ordering
+  const [collapsedSeats, setCollapsedSeats] = useState(() => ({})); // { [seatName]: true }
+  const tocRef = useRef(null);
   // Filters
   const { filteredCandidates } = useFilters(candidates);
+
+  // Group candidates by seat for card view for easier voting per-seat
+  const groupedCandidates = React.useMemo(() => {
+    const map = new Map();
+    (filteredCandidates || []).forEach(c => {
+      const seat = c.seat || 'Unspecified';
+      if (!map.has(seat)) map.set(seat, []);
+      map.get(seat).push(c);
+    });
+
+    // Convert map to array for sorting
+    let entries = Array.from(map.entries());
+
+    // Helper: apply ordering modes
+    const normalize = (s) => String(s || '').trim();
+
+    if (seatOrderMode === 'presidentFirst') {
+      entries.sort((a, b) => {
+        const aKey = normalize(a[0]).toLowerCase();
+        const bKey = normalize(b[0]).toLowerCase();
+        if (aKey === 'president' && bKey !== 'president') return -1;
+        if (bKey === 'president' && aKey !== 'president') return 1;
+        return aKey.localeCompare(bKey);
+      });
+    } else if (seatOrderMode === 'custom' && customSeatOrder.trim()) {
+      const custom = customSeatOrder.split(',').map(s => normalize(s).toLowerCase()).filter(Boolean);
+      const indexOf = (name) => {
+        const i = custom.indexOf(normalize(name).toLowerCase());
+        return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+      };
+      entries.sort((a, b) => {
+        const ia = indexOf(a[0]);
+        const ib = indexOf(b[0]);
+        if (ia !== ib) return ia - ib;
+        return String(a[0]).localeCompare(String(b[0]));
+      });
+    } else {
+      // Default alphabetical
+      entries.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    }
+
+    return entries;
+  }, [filteredCandidates, seatOrderMode, customSeatOrder]);
+
+  // Utilities for TOC and collapsing
+  const scrollToSeat = (seat) => {
+    const id = `seat-${encodeURIComponent(seat)}`;
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const toggleCollapse = (seat) => {
+    setCollapsedSeats(prev => ({ ...prev, [seat]: !prev[seat] }));
+  };
+
+  const expandAll = () => {
+    const next = {};
+    groupedCandidates.forEach(([seat]) => { next[seat] = false; });
+    setCollapsedSeats(next);
+  };
+
+  const collapseAll = () => {
+    const next = {};
+    groupedCandidates.forEach(([seat]) => { next[seat] = true; });
+    setCollapsedSeats(next);
+  };
 
   const isAdmin = user?.role === 'admin';
 
@@ -388,10 +457,99 @@ const CandidatesContent = memo(() => {
             onOpenAudit={(c) => { setAuditCandidate(c); setAuditOpen(true); }}
           />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredCandidates.map(c => (
-              <CandidateCard key={`${c.electionId}-${c.id}`} candidate={c} onEdit={() => openEditModal(c)} onView={() => { setSelectedCandidate(c); openModal('showEditModal'); }} onDelete={() => handleDeleteCandidate(c)} />
-            ))}
+          <div className="space-y-6">
+            {/* Table of Contents (seat jump list) & Seat ordering / collapse controls */}
+            <div ref={tocRef} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm text-gray-300 font-medium">Seats:</span>
+                <div className="flex gap-2 flex-wrap">
+                  {groupedCandidates.slice(0, 20).map(([seat]) => (
+                    <button
+                      key={`toc-${seat}`}
+                      onClick={() => scrollToSeat(seat)}
+                      className="text-sm px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded-md text-gray-200 border border-gray-600"
+                    >
+                      {seat}
+                    </button>
+                  ))}
+                  {groupedCandidates.length > 20 && (
+                    <span className="text-xs text-gray-400 px-2">... {groupedCandidates.length - 20} more</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-300">Seat order</label>
+                <select
+                  value={seatOrderMode}
+                  onChange={(e) => setSeatOrderMode(e.target.value)}
+                  className="px-2 py-1 bg-gray-700 border border-gray-600 rounded-md text-white text-sm"
+                >
+                  <option value="alphabetical">Alphabetical</option>
+                  <option value="presidentFirst">President first</option>
+                  <option value="custom">Custom (comma-separated)</option>
+                </select>
+
+                {seatOrderMode === 'custom' && (
+                  <input
+                    placeholder="e.g. President,Vice President,Treasurer"
+                    value={customSeatOrder}
+                    onChange={(e) => setCustomSeatOrder(e.target.value)}
+                    className="ml-2 px-2 py-1 bg-gray-700 border border-gray-600 rounded-md text-white text-sm w-64"
+                  />
+                )}
+
+                <button onClick={expandAll} className="ml-2 px-2 py-1 bg-green-600 rounded-md text-white text-sm">Expand all</button>
+                <button onClick={collapseAll} className="ml-1 px-2 py-1 bg-red-600 rounded-md text-white text-sm">Collapse all</button>
+              </div>
+            </div>
+            {groupedCandidates.length === 0 && (
+              <div className="text-gray-400">No candidates to display.</div>
+            )}
+            {groupedCandidates.map(([seat, list]) => {
+              const collapsed = !!collapsedSeats[seat];
+              return (
+                <div key={`seat-group-${seat}`} id={`seat-${encodeURIComponent(seat)}`} className="mb-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => toggleCollapse(seat)}
+                        aria-expanded={!collapsed}
+                        className="p-1 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-200"
+                      >
+                        {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                      <h3 className="text-lg font-semibold text-white">{seat} <span className="text-sm text-gray-400">— {list.length} candidate{list.length>1?'s':''}</span></h3>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => scrollToSeat(seat)}
+                        className="text-sm px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded-md text-gray-200 border border-gray-600"
+                      >
+                        Jump
+                      </button>
+                    </div>
+                  </div>
+
+                  {!collapsed && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                      {list.map((c, idx) => (
+                        <CandidateCard
+                          key={`${c.electionId}-${c.id || c._id || idx}`}
+                          candidate={c}
+                          index={idx}
+                          onEdit={() => openEditModal(c)}
+                          onView={() => { setSelectedCandidate(c); openModal('showEditModal'); }}
+                          onDelete={() => handleDeleteCandidate(c)}
+                          onVote={() => handleVote(c)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -701,4 +859,5 @@ const CandidatesRefactored = memo(() => {
 
 CandidatesRefactored.displayName = 'CandidatesRefactored';
 
+export { CandidatesRefactored };
 export default CandidatesRefactored;

@@ -84,12 +84,20 @@ API.interceptors.response.use(
 
     // Handle authentication errors
     if (error.response && error.response.status === 401) {
-      // Clear token and redirect to login
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      // Don't redirect if we're already on login page
+      // Clear token and user data
+      try { localStorage.removeItem('token'); } catch (e) {}
+      try { localStorage.removeItem('user'); } catch (e) {}
+
+      // Store a short-lived message for the login page to display (sessionStorage clears on tab close)
+      try {
+        const message = (error.response && error.response.data && (error.response.data.message || error.response.data.error)) || 'Session expired or unauthorized. Please login again.';
+        sessionStorage.setItem('auth_message', JSON.stringify({ type: 'error', text: message }));
+      } catch (e) { /* ignore */ }
+
+      // Don't redirect if we're already on the login page
       if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
+        // Redirect user to the unified login route with a hint so the login UI can surface a friendly prompt
+        window.location.href = '/login?unauth=1';
       }
     }
     return Promise.reject(error);

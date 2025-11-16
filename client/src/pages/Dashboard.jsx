@@ -23,7 +23,18 @@ import {
   CheckCircle,
   Clock,
   BarChart3,
-  PieChart
+  PieChart,
+  RefreshCw,
+  Bell,
+  Plus,
+  Lock,
+  Play,
+  Trash2,
+  BarChart2,
+  ExternalLink,
+  Sun,
+  Moon,
+  Search
 } from "lucide-react";
 
 // Placeholder components if you haven't implemented them yet
@@ -94,6 +105,19 @@ const Dashboard = memo(() => {
   });
   const { data: systemData, isLoading: systemLoading, error: systemError } = useSystemMonitoring();
 
+  // UI state for new dashboard features
+  // Initialize selectedElectionId to null to avoid referencing chartElectionId
+  // which is computed later in this component (prevents TDZ ReferenceError).
+  const [selectedElectionId, setSelectedElectionId] = useState(null);
+  const [lastSynced, setLastSynced] = useState(Date.now());
+  const [nowTicks, setNowTicks] = useState(Date.now());
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [theme, setTheme] = useState('dark');
+  const [candidateSearch, setCandidateSearch] = useState('');
+  const [candidatePage, setCandidatePage] = useState(1);
+  const CANDIDATES_PER_PAGE = 10;
+
   const [focusedElection, setFocusedElection] = useState(null);
   const [focusedCandidates, setFocusedCandidates] = useState([]);
   const [showCandidatesPanel, setShowCandidatesPanel] = useState(false);
@@ -161,11 +185,41 @@ const Dashboard = memo(() => {
 
   // Choose an election to show analytics for (priority: focused -> active -> completed)
   const chartElectionId = (focusedElection && (focusedElection._id || focusedElection.id)) || (overview.active?.[0]?._id) || (overview.completed?.[0]?._id) || null;
-  const { data: finalResultsData, isLoading: finalResultsLoading } = useFinalResults(chartElectionId);
+  // selectedElectionId falls back to chartElectionId if not set
+  useEffect(()=>{
+    if (!selectedElectionId) setSelectedElectionId(chartElectionId);
+  },[chartElectionId]);
+
+  const { data: finalResultsData, isLoading: finalResultsLoading, refetch: refetchFinalResults } = useFinalResults(selectedElectionId || chartElectionId);
   const chartData = useMemo(() => {
     const results = finalResultsData?.results || [];
     return results.map(r => ({ id: r.id || r._id, label: r.name, value: r.votes ?? r.value ?? 0, percentage: Number(r.percentage) || 0 }));
   }, [finalResultsData]);
+
+  // election id we should act upon for quick actions (selected or fallback to chartElectionId)
+  const activeElectionId = selectedElectionId || chartElectionId;
+
+  // Auto-refresh final results when enabled
+  useEffect(() => {
+    if (!autoRefresh) return;
+    // 3 minutes auto-refresh
+    const iv = setInterval(() => {
+      refetchFinalResults?.();
+      setLastSynced(Date.now());
+    }, 3 * 60 * 1000);
+    return () => clearInterval(iv);
+  }, [autoRefresh, refetchFinalResults]);
+
+  // Tick to update "seconds ago" display
+  useEffect(() => {
+    const iv = setInterval(() => setNowTicks(Date.now()), 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // Chart UI state
+  const [chartTab, setChartTab] = useState('distribution'); // distribution | trends | turnout
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   // Handle system monitoring errors gracefully
   if (systemError) {
@@ -245,7 +299,92 @@ const Dashboard = memo(() => {
   return (
     <DashboardLayout>
       <Toast message={toastMsg} />
-      
+      {/* TOP HEADER: breadcrumbs, title, election selector, sync */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-4">
+            <nav className="text-sm text-gray-400">Home / <span className="text-white">Dashboard</span></nav>
+            <h1 className="text-2xl font-bold text-white">Admin Dashboard</h1>
+            <div className="text-xs text-gray-400 ml-2">Last Synced: <span className="text-sky-300 font-mono">{Math.floor((nowTicks - lastSynced)/1000)}s ago</span></div>
+          </div>
+          <div className="flex items-center gap-3">
+            <select value={selectedElectionId || ''} onChange={(e)=>{ setSelectedElectionId(e.target.value); refetchFinalResults?.(); setLastSynced(Date.now()); }} className="bg-gray-800 text-white p-2 rounded border border-gray-700 text-sm">
+              <option value="">-- Select Active Election --</option>
+              {(Array.isArray(elections) ? elections : []).map(ev => (
+                <option key={ev._id} value={ev._id}>{ev.title} ({String(ev.status).toUpperCase()})</option>
+              ))}
+            </select>
+            <button title="Refresh" onClick={async ()=>{ await refetchElections(); refetchFinalResults?.(); setLastSynced(Date.now()); }} className="p-2 rounded bg-gray-800 border border-gray-700 hover:bg-gray-700 text-sky-300">
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            <label className="flex items-center gap-2 text-sm text-gray-300">
+              <input type="checkbox" checked={autoRefresh} onChange={e=>setAutoRefresh(e.target.checked)} /> Auto-refresh 3m
+            </label>
+            <button title="Toggle notifications" onClick={()=>setShowNotifications(!showNotifications)} className="relative p-2 bg-gray-800 border border-gray-700 rounded text-gray-200">
+              <Bell className="w-5 h-5" />
+              {(notifications?.length>0) && <span className="absolute -top-1 -right-1 bg-yellow-400 text-black text-xs rounded-full px-1">{notifications.length}</span>}
+            </button>
+            <button title="Toggle theme" onClick={()=>{ const t = theme === 'dark' ? 'light' : 'dark'; setTheme(t); document.documentElement.setAttribute('data-theme', t); }} className="p-2 bg-gray-800 border border-gray-700 rounded text-gray-200">
+              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Quick actions toolbar */}
+        <div className="flex items-center gap-3 mb-4">
+            <button onClick={()=>navigate('/admin/elections')} className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-3 py-2 rounded"> <Plus className="w-4 h-4"/> Create Election</button>
+            <button
+              onClick={async ()=>{
+                if (!activeElectionId) { showToast('Select an election first to lock its candidate list.'); return; }
+                try {
+                  showToast('Locking candidate list...');
+                  await lockCandidateListMutation.mutateAsync(activeElectionId);
+                  showToast('Candidate list locked.');
+                  refetchElections();
+                } catch(e){ showToast('Failed to lock candidate list','error'); }
+              }}
+              disabled={!activeElectionId}
+              className={`flex items-center gap-2 px-3 py-2 rounded border ${!activeElectionId ? 'opacity-50 cursor-not-allowed bg-gray-700 border-gray-700 text-gray-400' : 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700'}`}>
+              <Lock className="w-4 h-4"/> Lock Candidate List
+            </button>
+
+          <button
+            onClick={()=>{
+              if (!activeElectionId) { showToast('Select an election first to open it.'); return; }
+              handleChangeStatus(activeElectionId, 'Open');
+            }}
+            disabled={!activeElectionId}
+            className={`flex items-center gap-2 px-3 py-2 rounded ${!activeElectionId ? 'opacity-50 cursor-not-allowed bg-emerald-700 text-white/60' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}>
+            <Play className="w-4 h-4"/> Open Election
+          </button>
+
+          <button
+            onClick={()=>{
+              if (!activeElectionId) { showToast('Select an election first to clear votes.'); return; }
+              setPendingAction({ type: 'clearVotes', electionId: activeElectionId });
+              setShowPasswordPrompt(true);
+            }}
+            disabled={!activeElectionId}
+            className={`flex items-center gap-2 px-3 py-2 rounded ${!activeElectionId ? 'opacity-50 cursor-not-allowed bg-red-700 text-white/60' : 'bg-red-600 hover:bg-red-500 text-white'}`}>
+            <Trash2 className="w-4 h-4"/> Clear Votes
+          </button>
+          <button onClick={()=>navigate('/admin/results')} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-3 py-2 rounded border border-gray-700"> <BarChart2 className="w-4 h-4"/> View All Results</button>
+          <button onClick={()=>navigate('/admin/blockchain-health')} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-3 py-2 rounded border border-gray-700"> <ExternalLink className="w-4 h-4"/> Blockchain Explorer</button>
+        </div>
+      </div>
+
+      {/* Notifications panel (toggle) */}
+      {showNotifications && (
+        <div className="fixed right-6 top-20 w-80 bg-gray-900 border border-gray-700 rounded shadow-lg z-50 p-3">
+          <h4 className="text-sm font-semibold text-white mb-2">Notifications</h4>
+          <ul className="space-y-2 max-h-64 overflow-y-auto">
+            {(notifications||[]).map((n,i)=> (
+              <li key={n._id||i} className="text-sm text-gray-300 bg-gray-800 p-2 rounded"> <div className="font-medium text-white">{n.title}</div><div className="text-xs text-gray-400">{n.message}</div></li>
+            ))}
+            {(notifications||[]).length === 0 && <li className="text-sm text-gray-400">No notifications</li>}
+          </ul>
+        </div>
+      )}
 
       {/* GLOBAL CRITICAL ALERT BANNER */}
       {(Array.isArray(systemAlerts) && systemAlerts.length > 0) && (
@@ -293,6 +432,7 @@ const Dashboard = memo(() => {
           value={systemAlerts.length === 0 ? "Secure" : "Alert"}
           subtitle={`${logs.length} audit logs`}
           highlightColor={systemAlerts.length === 0 ? "text-green-400" : "text-red-400"}
+          alertsCount={(systemAlerts || []).length}
         />
       </div>
 
@@ -358,42 +498,149 @@ const Dashboard = memo(() => {
                     <button onClick={()=>setShowCandidatesPanel(false)} className="px-3 py-1 bg-gray-700 rounded text-sm">Close</button>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {(focusedCandidates || []).map((c, idx) => (
-                    <div key={c._id || c.id || idx} className="p-3 bg-gray-800 rounded border border-gray-700">
-                      <div className="font-semibold text-white">{c.name || c.fullName || c.label}</div>
-                      <div className="text-xs text-gray-400">Seat: {c.seat || c.label || '—'}</div>
-                      <div className="text-xs text-gray-400">Votes: {c.votes ?? c.voteCount ?? 0}</div>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3 mb-2">
+                        <input value={candidateSearch} onChange={e=>{ setCandidateSearch(e.target.value); setCandidatePage(1); }} placeholder="Search candidate by name..." className="bg-gray-700 text-white rounded px-3 py-2 text-sm w-full" />
+                        <select value={''} onChange={(e)=>{/* placeholder for more filters */}} className="bg-gray-700 text-white rounded px-3 py-2 text-sm">
+                          <option value="">Sort: Default</option>
+                        </select>
+                      </div>
+
+                      {/* compute filtered/sorted/paginated candidates */}
+                      {(() => {
+                        const list = Array.isArray(focusedCandidates) ? focusedCandidates.slice() : [];
+                        // basic search filter
+                        const filtered = list.filter(c => {
+                          if (!candidateSearch) return true;
+                          const s = candidateSearch.toLowerCase();
+                          return (c.name || c.fullName || c.label || '').toLowerCase().includes(s) || (c.party || '').toLowerCase().includes(s);
+                        });
+                        // compute totals for progress bars
+                        const totalVotes = filtered.reduce((s,c)=> s + (Number(c.votes) || Number(c.voteCount) || 0), 0) || 0;
+                        // simple sort: by votes desc
+                        filtered.sort((a,b)=> (Number(b.votes||b.voteCount||0) - Number(a.votes||a.voteCount||0)));
+                        const start = (candidatePage - 1) * CANDIDATES_PER_PAGE;
+                        const pageItems = filtered.slice(start, start + CANDIDATES_PER_PAGE);
+
+                        if (filtered.length === 0) return <div className="text-gray-400">No candidates found for this election.</div>;
+
+                        return (
+                          <div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {pageItems.map((c, idx) => {
+                                const votes = Number(c.votes || c.voteCount || 0);
+                                const pct = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
+                                const rank = filtered.indexOf(c) + 1;
+                                const badge = rank === 1 ? 'Leading' : rank === 2 ? '2nd place' : (votes === 0 ? 'Eliminated' : null);
+                                const initials = (c.name || c.fullName || '').split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase() || '?';
+                                return (
+                                  <div key={c._id || c.id || idx} className="p-3 bg-gray-800 rounded border border-gray-700 flex gap-3">
+                                    <div className="flex-shrink-0">
+                                      {c.photo || c.avatar ? (
+                                        <img src={c.photo || c.avatar} alt={c.name} className="w-12 h-12 rounded-full object-cover" />
+                                      ) : (
+                                        <div className="w-12 h-12 rounded-full bg-sky-700 flex items-center justify-center text-white font-bold">{initials}</div>
+                                      )}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div>
+                                          <div className="font-semibold text-white">{c.name || c.fullName || c.label}</div>
+                                          <div className="text-xs text-gray-400">Seat: {c.seat || c.label || '—'}</div>
+                                        </div>
+                                        <div className="text-right">
+                                          <div className="text-sm font-mono text-gray-300">{votes}</div>
+                                          {badge && <div className="text-xs mt-1 px-2 py-0.5 rounded-full bg-gray-700 text-gray-200">{badge}</div>}
+                                        </div>
+                                      </div>
+                                      <div className="mt-3">
+                                        <div className="w-full bg-gray-700 h-2 rounded overflow-hidden">
+                                          <div className="h-2 bg-emerald-500" style={{ width: `${pct}%` }} />
+                                        </div>
+                                        <div className="text-xs text-gray-400 mt-1">{pct}% of visible votes</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* pagination controls */}
+                            <div className="flex items-center justify-between mt-3">
+                              <div className="text-sm text-gray-400">Showing {start+1}–{Math.min(start + pageItems.length, filtered.length)} of {filtered.length}</div>
+                              <div className="flex items-center gap-2">
+                                <button onClick={()=>setCandidatePage(p=>Math.max(1,p-1))} className="px-3 py-1 bg-gray-700 rounded text-sm">Prev</button>
+                                <button onClick={()=>setCandidatePage(p=>p+1)} className="px-3 py-1 bg-gray-700 rounded text-sm">Next</button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
-                  ))}
-                  {(focusedCandidates || []).length === 0 && <div className="text-gray-400">No candidates found for this election.</div>}
-                </div>
               </div>
             )}
             
-      {/* Live Results/Analytics (Combined) */}
+      {/* Live Results/Analytics (Tabbed) */}
       {finalResultsLoading ? (
         <div className="h-64 flex items-center justify-center bg-gray-700/50 rounded-lg">
-        <div className="text-gray-400 text-lg font-medium animate-pulse">Loading election results...</div>
-        </div>
-      ) : (chartData && chartData.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="h-72">
-            <h3 className="text-lg font-semibold text-sky-400 mb-3">Vote Distribution by Candidate</h3>
-            <VotePieChart data={chartData} />
-          </div>
-          <div className="h-72">
-            <h3 className="text-lg font-semibold text-sky-400 mb-3">Vote Tally Comparison</h3>
-            <VoteBarChart data={chartData} />
-          </div>
+          <div className="text-gray-400 text-lg font-medium animate-pulse">Loading election results...</div>
         </div>
       ) : (
-        <div className="h-64 flex items-center justify-center bg-gray-700/50 rounded-lg">
-          <div className="text-gray-400 text-lg font-medium animate-pulse">
-            Awaiting data for active elections...
+        <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <button onClick={()=>setChartTab('distribution')} className={`px-3 py-1 rounded ${chartTab==='distribution' ? 'bg-sky-600 text-white' : 'bg-gray-800 text-gray-300'}`}>Votes Distribution</button>
+              <button onClick={()=>setChartTab('trends')} className={`px-3 py-1 rounded ${chartTab==='trends' ? 'bg-sky-600 text-white' : 'bg-gray-800 text-gray-300'}`}>Tally Trends</button>
+              <button onClick={()=>setChartTab('turnout')} className={`px-3 py-1 rounded ${chartTab==='turnout' ? 'bg-sky-600 text-white' : 'bg-gray-800 text-gray-300'}`}>Turnout Over Time</button>
+            </div>
+            <div className="flex items-center gap-3">
+              <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} className="bg-gray-800 text-white px-3 py-1 rounded text-sm" />
+              <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} className="bg-gray-800 text-white px-3 py-1 rounded text-sm" />
+              <button onClick={()=>{ refetchFinalResults?.(); setLastSynced(Date.now()); }} className="px-3 py-1 rounded bg-gray-800 text-gray-200">Apply</button>
+            </div>
+          </div>
+
+          <div>
+            {chartTab === 'distribution' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="h-72">
+                  <h3 className="text-lg font-semibold text-sky-400 mb-3">Vote Distribution by Candidate</h3>
+                  <VotePieChart data={chartData} />
+                </div>
+                <div className="h-72">
+                  <h3 className="text-lg font-semibold text-sky-400 mb-3">Vote Tally Comparison</h3>
+                  <VoteBarChart data={chartData} />
+                </div>
+              </div>
+            )}
+
+            {chartTab === 'trends' && (
+              <div className="h-72">
+                <h3 className="text-lg font-semibold text-sky-400 mb-3">Tally Trends (recent)</h3>
+                <VoteBarChart data={chartData} />
+              </div>
+            )}
+
+            {chartTab === 'turnout' && (
+              <div className="h-56 p-4 bg-gray-800 rounded">
+                <h3 className="text-lg font-semibold text-sky-400 mb-3">Turnout Over Time</h3>
+                <div className="flex items-center gap-4">
+                  <div className="w-2/3">
+                    <div className="w-full bg-gray-700 h-6 rounded overflow-hidden">
+                      <div className="h-6 bg-emerald-500" style={{ width: `${Math.min(100, voterStats.rate||0)}%` }} />
+                    </div>
+                    <div className="text-sm text-gray-400 mt-2">Current turnout: {voterStats.rate}% ({voterStats.cast}/{voterStats.total})</div>
+                  </div>
+                  <div className="flex-1 text-sm text-gray-400">
+                    <div>Selected: {selectedElectionId ? (elections.find(e=>e._id===selectedElectionId)?.title || 'Selected') : 'All'}</div>
+                    <div>Range: {dateFrom || '—'} → {dateTo || '—'}</div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      ))}
+      )}
 
             {/* Election Overview with Quick Links */}
             <div className="pt-4">
@@ -413,11 +660,11 @@ const Dashboard = memo(() => {
                                             <span className={`px-2 py-1 rounded-full text-xs font-bold ${type==="active"?"bg-emerald-700":type==="upcoming"?"bg-yellow-700":"bg-gray-700"} text-white`}>
                                                 {ev.type}
                                             </span>
-                                            {type === "active" && (
-                                                <Link to={`/election/${ev._id}/results`} className="text-xs text-sky-400 hover:text-sky-300 font-semibold transition">
-                                                    View Live →
-                                                </Link>
-                                            )}
+                      {type === "active" && (
+                        <Link to={`/admin/elections/${ev._id}`} className="text-xs text-sky-400 hover:text-sky-300 font-semibold transition">
+                          View Live →
+                        </Link>
+                      )}
                                             {user?.role?.toLowerCase() === 'admin' && (
                                               <>
                                                 {['setup','upcoming','setup'].includes(String(ev.status || '').toLowerCase()) && (

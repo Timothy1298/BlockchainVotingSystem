@@ -84,6 +84,7 @@ export const StatCard = ({
   subtitle, 
   trend, 
   trendValue, 
+  alertsCount = 0,
   className = '', 
   highlightColor = 'text-sky-400' 
 }) => {
@@ -91,6 +92,31 @@ export const StatCard = ({
   const isNegative = trend === 'down';
   const TrendIcon = isPositive ? TrendingUp : isNegative ? TrendingDown : null;
   const trendColor = isPositive ? 'text-green-400' : isNegative ? 'text-red-400' : 'text-gray-400';
+
+  // small numeric counter for animated values
+  const Count = ({ val }) => {
+    const parsed = Number(val);
+    const [n, setN] = React.useState(isNaN(parsed) ? val : 0);
+    React.useEffect(() => {
+      if (isNaN(parsed)) {
+        setN(val);
+        return;
+      }
+      let raf = null;
+      let start = null;
+      const duration = 700;
+      const step = (ts) => {
+        if (!start) start = ts;
+        const elapsed = ts - start;
+        const t = Math.min(1, elapsed / duration);
+        setN(Math.round(parsed * t));
+        if (t < 1) raf = requestAnimationFrame(step);
+      };
+      raf = requestAnimationFrame(step);
+      return () => raf && cancelAnimationFrame(raf);
+    }, [val]);
+    return <span>{n}</span>;
+  };
 
   return (
     <BaseCard className={`${className}`}>
@@ -100,6 +126,10 @@ export const StatCard = ({
             <Icon className="w-6 h-6" />
           </div>
         )}
+        {/* Alerts badge */}
+        {alertsCount > 0 && (
+          <div className="ml-2 px-2 py-1 rounded-full bg-red-600 text-white text-xs font-bold">{alertsCount}</div>
+        )}
         {TrendIcon && trendValue && (
           <div className={`flex items-center gap-1 ${trendColor}`}>
             <TrendIcon className="w-4 h-4" />
@@ -108,7 +138,7 @@ export const StatCard = ({
         )}
       </div>
       <div>
-        <h3 className="text-2xl font-bold text-white mb-1">{value}</h3>
+        <h3 className="text-2xl font-bold text-white mb-1"><Count val={value} /></h3>
         <p className="text-sm text-gray-400">{title}</p>
         {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
       </div>
