@@ -26,7 +26,9 @@ const ElectionSchema = new mongoose.Schema({
   chainElectionId: { type: Number, required: false },
   lastSyncedBlock: { type: Number, required: false },
   statusHistory: [{ 
-    status: { type: String, enum: ['Setup', 'Open', 'Closed', 'Finalized'] }, 
+    // Accept both current (capitalized) and legacy/lowercase values so
+    // existing records from older releases don't fail validation on save.
+    status: { type: String, enum: ['Setup','setup','upcoming','Upcoming','Open','open','Closed','closed','Finalized','finalized','active','completed'] }, 
     at: { type: Date, default: Date.now },
     changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
   }],
@@ -41,7 +43,8 @@ const ElectionSchema = new mongoose.Schema({
   voterCandidateVotes: { type: mongoose.Schema.Types.Mixed, default: {} }, // Track which specific candidates each voter has voted for
   status: { 
     type: String, 
-    enum: ['Setup', 'Open', 'Closed', 'Finalized'], 
+    // Allow legacy lowercase values and synonyms (active/completed/upcoming)
+    enum: ['Setup','setup','upcoming','Upcoming','Open','open','Closed','closed','Finalized','finalized','active','completed'], 
     default: 'Setup' 
   },
   votingEnabled: { type: Boolean, default: false },

@@ -3,7 +3,8 @@ import React, { useContext, useState, useEffect, useMemo, memo } from "react";
 import { useNavigate, Link, useLocation } from "react-router-dom"; 
 import { DashboardLayout } from "../layouts/DashboardLayout";
 import { AuthContext } from "../contexts/auth";
-import { useElections, useFinalResults } from "../hooks/elections";
+import { useElections, useFinalResults, useChangeElectionStatus, useLockCandidateList, useClearVotes } from "../hooks/elections";
+import { AdminPasswordPrompt } from '../components/features/admin';
 import { useSystemMonitoring } from "../hooks/system";
 import { useQuery } from '@tanstack/react-query';
 import { usersAPI } from '../services/api';
@@ -82,7 +83,10 @@ const Dashboard = memo(() => {
   const location = useLocation();
 
   // Use React Query hooks for data fetching
-  const { data: electionsData, isLoading: electionsLoading } = useElections();
+  const { data: electionsData, isLoading: electionsLoading, refetch: refetchElections } = useElections();
+  const changeStatusMutation = useChangeElectionStatus();
+  const lockCandidateListMutation = useLockCandidateList();
+  const clearVotesMutation = useClearVotes();
   const { data: usersData, isLoading: usersLoading } = useQuery({
     queryKey: ['users'],
     queryFn: usersAPI.list,
@@ -95,6 +99,8 @@ const Dashboard = memo(() => {
   const [showCandidatesPanel, setShowCandidatesPanel] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
   const [alerts, setAlerts] = useState([]);
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
 
   // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL LOGIC
   // Redirect if not logged in
@@ -171,6 +177,55 @@ const Dashboard = memo(() => {
   const showToast = (msg) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(""), 4000);
+  };
+
+  const handlePasswordConfirm = async (password) => {
+    if (!pendingAction) return;
+    try {
+      if (pendingAction.type === 'changeStatus') {
+        showToast(`Changing election status to ${pendingAction.status}...`, 'info');
+        await changeStatusMutation.mutateAsync({ id: pendingAction.electionId, status: pendingAction.status, adminPassword: password });
+        showToast(`Election status changed to ${pendingAction.status}`, 'success');
+      } else if (pendingAction.type === 'clearVotes') {
+        showToast('Clearing all votes...', 'info');
+        await clearVotesMutation.mutateAsync({ id: pendingAction.electionId, adminPassword: password });
+        showToast('All votes cleared successfully.', 'success');
+      }
+      // refresh list
+      clearElectionsCache();
+      await refetchElections();
+    } catch (err) {
+      console.error('Action error:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to perform action';
+      showToast(errorMessage, 'error');
+    } finally {
+      setShowPasswordPrompt(false);
+      setPendingAction(null);
+    }
+  };
+
+  const handleChangeStatus = async (id, status) => {
+    const election = (Array.isArray(electionsData) ? electionsData : []).find(e => e._id === id);
+    if (status === 'Open' && election && !election.candidateListLocked) {
+      const shouldLock = window.confirm('To open this election, the candidate list must be locked first. Lock now?');
+      if (shouldLock) {
+        try {
+          showToast('Locking candidate list...', 'info');
+          await lockCandidateListMutation.mutateAsync(id);
+          showToast('Candidate list locked successfully.', 'success');
+          clearElectionsCache();
+          await refetchElections();
+        } catch (err) {
+          showToast('Failed to lock candidate list', 'error');
+          return;
+        }
+      } else {
+        return;
+      }
+    }
+
+    setPendingAction({ type: 'changeStatus', electionId: id, status });
+    setShowPasswordPrompt(true);
   };
 
   // Show loading state while data is being fetched
@@ -363,6 +418,16 @@ const Dashboard = memo(() => {
                                                     View Live →
                                                 </Link>
                                             )}
+                                            {user?.role?.toLowerCase() === 'admin' && (
+                                              <>
+                                                {['setup','upcoming','setup'].includes(String(ev.status || '').toLowerCase()) && (
+                                                  <button onClick={() => handleChangeStatus(ev._id, 'Open')} className="ml-2 px-2 py-1 bg-green-600 text-white rounded text-xs">Open</button>
+                                                )}
+                                                {['open'].includes(String(ev.status || '').toLowerCase()) && (
+                                                  <button onClick={() => handleChangeStatus(ev._id, 'Closed')} className="ml-2 px-2 py-1 bg-yellow-600 text-white rounded text-xs">Close</button>
+                                                )}
+                                              </>
+                                            )}
                                         </div>
                                     </li>
                                 ))}
@@ -443,6 +508,20 @@ const Dashboard = memo(() => {
           </div>
         </div>
       )}
+      <AdminPasswordPrompt
+        isOpen={showPasswordPrompt}
+        onClose={() => { setShowPasswordPrompt(false); setPendingAction(null); }}
+        onConfirm={handlePasswordConfirm}
+        title="Admin Authorization Required"
+        message={
+          pendingAction?.type === 'clearVotes'
+            ? 'Please enter your admin password to clear all votes from this election. This action is irreversible and will allow you to delete the election.'
+            : pendingAction?.type === 'changeStatus'
+            ? `Please enter your admin password to change the election status to ${pendingAction.status}.`
+            : 'Please enter your admin password to perform this action.'
+        }
+        action={pendingAction?.type === 'clearVotes' ? 'Clear All Votes' : pendingAction?.type === 'changeStatus' ? `Change to ${pendingAction.status}` : 'Confirm'}
+      />
     </DashboardLayout>
   );
 });

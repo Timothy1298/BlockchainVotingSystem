@@ -210,7 +210,8 @@ export const votingAPI = {
   
   // Vote status and candidates
   hasVoted: (electionId) => API.get('/votes/hasVoted', { params: { electionId } }).then(res => res.data),
-  getCandidates: (electionId) => API.get('/votes/candidates', { params: { electionId } }).then(res => res.data),
+  // If second arg is an object it will be treated as query params for pagination/filtering
+  getCandidates: (electionId, params = {}) => API.get('/votes/candidates', { params: { electionId, ...params } }).then(res => res.data),
   
   // Admin only
   addCandidate: (candidateData) => API.post('/votes/candidates', candidateData).then(res => res.data),

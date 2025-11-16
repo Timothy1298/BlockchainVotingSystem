@@ -1,7 +1,7 @@
 import React, { memo } from 'react';
 import { motion } from 'framer-motion';
 import { 
-  Search, Plus, Upload, Eye, Download, RefreshCw 
+  Search, Plus, Upload, Eye, Download, RefreshCw, LayoutList, LayoutGrid 
 } from 'lucide-react';
 import { useFilters } from '../../hooks/candidates';
 import { useGlobalUI } from '../../components/common';
@@ -10,7 +10,9 @@ const FilterControls = memo(({
   candidates, 
   elections, 
   onRefresh, 
-  onExport 
+  onExport,
+  viewMode = 'table',
+  onToggleView
 }) => {
   const {
     searchTerm,
@@ -160,7 +162,17 @@ const FilterControls = memo(({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
+          <div className="flex items-center gap-2 mr-2">
+            <button title="Cards view" onClick={() => onToggleView && onToggleView('cards')} className={`p-2 rounded ${viewMode === 'cards' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}>
+              <LayoutGrid className="w-4 h-4 text-white" />
+            </button>
+            <button title="Table view" onClick={() => onToggleView && onToggleView('table')} className={`p-2 rounded ${viewMode === 'table' ? 'bg-gray-700' : 'hover:bg-gray-700'}`}>
+              <LayoutList className="w-4 h-4 text-white" />
+            </button>
+          </div>
+
+          
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}

@@ -28,6 +28,7 @@ const alertRoutes = require('./routes/alertRoutes');
 const systemMonitoringRoutes = require('./routes/systemMonitoringRoutes');
 const adminKycRoutes = require('./routes/adminKycRoutes');
 const adminAuditRoutes = require('./routes/adminAuditRoutes');
+const uploadRoutes = require('./routes/uploadRoutes');
 
 const config = require('./config');
 const logger = require('./utils/logger');
@@ -108,6 +109,7 @@ app.use('/api/system', systemMonitoringRoutes);
 app.use('/api/admin-settings', require('./routes/adminSettingsRoutes'));
 app.use('/api/admin/kyc', adminKycRoutes);
 app.use('/api/admin/audit', adminAuditRoutes);
+app.use('/api/uploads', uploadRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

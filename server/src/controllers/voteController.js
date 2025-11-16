@@ -10,16 +10,69 @@ const crypto = require('crypto');
 
 exports.getCandidates = async (req, res) => {
   // If electionId provided, fetch candidates for that election (DB) else fall back to global contract
-  const { electionId } = req.query;
+  const { electionId, page = 1, limit = 50, seat, party, search, sortBy = 'name', sortOrder = 'asc' } = req.query;
   try {
     if (process.env.BLOCKCHAIN_MOCK === 'true' || electionId) {
-      // DB-backed
-      const election = await Election.findById(electionId);
-      if (!election) return res.error(404, 'Election not found');
+      // DB-backed: use aggregation to support server-side filtering and pagination
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const perPage = Math.max(1, Math.min(200, parseInt(limit, 10) || 50));
 
-      // Ensure the 'seat' property is returned for frontend logic
-      const payload = election.candidates.map(c => ({ id: c._id || c.id, name: c.name, votes: c.votes, seat: c.seat }));
-      return res.success(payload);
+      const matchStage = { $match: { _id: Election.Types ? Election.Types.ObjectId ? Election.Types.ObjectId(electionId) : electionId : electionId } };
+      // The above is defensive; prefer ObjectId conversion if available
+      try {
+        const mongoose = require('mongoose');
+        matchStage.$match._id = mongoose.Types.ObjectId(electionId);
+      } catch (e) {
+        matchStage.$match._id = electionId;
+      }
+
+      const pipeline = [
+        matchStage,
+        { $unwind: '$candidates' },
+      ];
+
+      // Filters
+      const candidateMatch = {};
+      if (seat) candidateMatch['candidates.seat'] = seat;
+      if (party) candidateMatch['candidates.party'] = party;
+      if (search) candidateMatch['$or'] = [
+        { 'candidates.name': { $regex: search, $options: 'i' } },
+        { 'candidates.party': { $regex: search, $options: 'i' } },
+        { 'candidates.seat': { $regex: search, $options: 'i' } }
+      ];
+      if (Object.keys(candidateMatch).length > 0) pipeline.push({ $match: candidateMatch });
+
+      // Projection and prepare sortable fields on root
+      pipeline.push({
+        $replaceRoot: { newRoot: { $mergeObjects: [ '$candidates', { electionId: '$_id', electionTitle: '$title' } ] } }
+      });
+
+      // Sorting
+      const sortField = sortBy || 'name';
+      const sortDirection = sortOrder === 'desc' ? -1 : 1;
+      const sortStage = { $sort: { [sortField]: sortDirection } };
+
+      // Facet for pagination
+      pipeline.push({
+        $facet: {
+          metadata: [ { $count: 'total' } ],
+          data: [ sortStage, { $skip: (pageNum - 1) * perPage }, { $limit: perPage } ]
+        }
+      });
+
+      const agg = await Election.aggregate(pipeline).allowDiskUse(true).exec();
+      const metadata = (agg[0] && agg[0].metadata[0]) || { total: 0 };
+      const data = (agg[0] && agg[0].data) || [];
+
+      return res.json({
+        candidates: data.map(c => ({ id: c._id || c.id, name: c.name, votes: c.votes || 0, seat: c.seat, party: c.party, isActive: c.isActive, verified: c.verified, chainCandidateId: c.chainCandidateId })),
+        pagination: {
+          page: pageNum,
+          limit: perPage,
+          total: metadata.total || 0,
+          pages: Math.ceil((metadata.total || 0) / perPage)
+        }
+      });
     }
 
     let candidates = [];

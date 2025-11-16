@@ -24,8 +24,11 @@ import StatisticsDashboard from '../../components/candidates/StatisticsDashboard
 import FilterControls from '../../components/candidates/FilterControls';
 import MetaMaskAccounts from '../../components/candidates/MetaMaskAccounts';
 import CandidateCard from '../../components/candidates/CandidateCard';
+import CandidateTable from '../../components/candidates/CandidateTable';
 import CandidateForm from '../../components/candidates/CandidateForm';
 import VotingModal from '../../components/candidates/VotingModal';    
+import RejectCandidateModal from '../../components/candidates/RejectCandidateModal';
+import AuditViewer from '../../components/audit/AuditViewer';
 
 // Hooks
 import { useFilters } from '../../hooks/candidates';
@@ -95,6 +98,11 @@ const CandidatesContent = memo(() => {
 
   const [bulkData, setBulkData] = useState('');
   const [bulkResults, setBulkResults] = useState(null);
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectingCandidate, setRejectingCandidate] = useState(null);
+  const [viewMode, setViewMode] = useState('table');
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditCandidate, setAuditCandidate] = useState(null);
 
   // Filters
   const { filteredCandidates } = useFilters(candidates);
@@ -334,7 +342,7 @@ const CandidatesContent = memo(() => {
         </div>
 
         {/* Statistics Dashboard */}
-        <StatisticsDashboard statistics={statistics} />
+  <StatisticsDashboard statistics={statistics} onOpenAudit={(d) => { setAuditCandidate(d); setAuditOpen(true); }} />
 
         {/* MetaMask Accounts */}
         <MetaMaskAccounts />
@@ -345,21 +353,86 @@ const CandidatesContent = memo(() => {
           elections={elections}
           onRefresh={handleRefresh}
           onExport={handleExport}
+          viewMode={viewMode}
+          onToggleView={(mode) => setViewMode(mode)}
         />
 
-        {/* Candidates Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredCandidates.map((candidate, index) => (
-            <CandidateCard
-              key={`${candidate.electionId}-${candidate.id}`}
-              candidate={candidate}
-              index={index}
-              onEdit={openEditModal}
-              onDelete={handleDeleteCandidate}
-              onVote={openVoteModal}
+        {/* Candidates (table or cards) */}
+        {viewMode === 'table' ? (
+          <CandidateTable
+            candidates={filteredCandidates}
+            onView={(c) => {
+              // set selected and open view modal (reuse edit modal as quick view)
+              setSelectedCandidate(c);
+              openModal('showEditModal');
+            }}
+            onEdit={(c) => openEditModal(c)}
+            onDelete={(c) => handleDeleteCandidate(c)}
+            onVerify={async (c) => {
+              // mark candidate as verified/active
+              try {
+                showLoader('Verifying candidate...');
+                await updateCandidate(c.electionId, c.id, { verified: true, isActive: true });
+                showToast('Candidate verified', 'success');
+                await fetchAllData();
+              } catch (err) {
+                showError(err.message || 'Failed to verify candidate');
+              } finally {
+                hideLoader();
+              }
+            }}
+            onReject={(c) => {
+              setRejectingCandidate(c);
+              setRejectModalOpen(true);
+            }}
+            onOpenAudit={(c) => { setAuditCandidate(c); setAuditOpen(true); }}
+          />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredCandidates.map(c => (
+              <CandidateCard key={`${c.electionId}-${c.id}`} candidate={c} onEdit={() => openEditModal(c)} onView={() => { setSelectedCandidate(c); openModal('showEditModal'); }} onDelete={() => handleDeleteCandidate(c)} />
+            ))}
+          </div>
+        )}
+
+        {/* Reject Candidate Modal (structured) */}
+        <AnimatePresence>
+          {rejectModalOpen && rejectingCandidate && (
+            <RejectCandidateModal
+              isOpen={rejectModalOpen}
+              candidate={rejectingCandidate}
+              onCancel={() => {
+                setRejectModalOpen(false);
+                setRejectingCandidate(null);
+              }}
+              onSubmit={async (payload) => {
+                try {
+                  showLoader('Rejecting candidate...');
+                  await updateCandidate(rejectingCandidate.electionId, rejectingCandidate.id, {
+                    isActive: false,
+                    disqualifiedReason: payload.disqualifiedReason || payload.disqualifiedReason,
+                    disqualificationNotes: payload.disqualificationNotes || payload.disqualificationNotes,
+                    disqualificationEvidence: payload.disqualificationEvidence || payload.disqualificationEvidence
+                  });
+                  await fetchAllData();
+                } catch (err) {
+                  showError(err.message || 'Failed to reject candidate');
+                } finally {
+                  hideLoader();
+                  setRejectModalOpen(false);
+                  setRejectingCandidate(null);
+                }
+              }}
             />
-          ))}
-        </div>
+          )}
+        </AnimatePresence>
+
+        {/* Audit Viewer Modal */}
+        <AnimatePresence>
+          {auditOpen && (
+            <AuditViewer isOpen={auditOpen} onClose={() => { setAuditOpen(false); setAuditCandidate(null); }} candidateId={auditCandidate?.id} electionId={auditCandidate?.electionId} />
+          )}
+        </AnimatePresence>
 
         {/* Empty State */}
         {filteredCandidates.length === 0 && candidates.length > 0 && (

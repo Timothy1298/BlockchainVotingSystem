@@ -109,17 +109,43 @@ export const useCandidates = () => {
 
   const getStatistics = useCallback(() => {
     const totalCandidates = candidates.length;
-    const activeCandidates = candidates.filter(c => c.isActive).length;
     const totalVotes = candidates.reduce((sum, c) => sum + (c.votes || 0), 0);
     const totalElections = elections.length;
-    const activeElections = elections.filter(e => e.status === 'Open').length;
-    
+    const activeElections = elections.filter(e => String(e.status || '').toLowerCase() === 'open').length;
+
+    // Positions contested: count per seat
+    const positions = candidates.reduce((acc, c) => {
+      const seat = c.seat || 'Unspecified';
+      acc[seat] = (acc[seat] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Approved/verified heuristics: prefer explicit flags if present (verified), otherwise isActive
+    const approvedCandidates = candidates.filter(c => (c.verified === true) || (c.isActive === true)).length;
+
+    // Pending verifications: look for common fields used in migrations or APIs
+    const pendingCandidates = candidates.filter(c => {
+      const status = String(c.status || c.verification?.overallStatus || '').toLowerCase();
+      return status === 'pending' || status === 'awaiting' || status === 'verification_pending';
+    }).length;
+
+    // Disqualified / inactive with reason logs
+    const disqualified = candidates.filter(c => (c.isActive === false) || c.disqualifiedReason || c.rejected).map(c => ({
+      id: c.id || c._id,
+      name: c.name,
+      seat: c.seat,
+      reason: c.disqualifiedReason || c.rejectionReason || null
+    }));
+
     return {
       totalCandidates,
-      activeCandidates,
       totalVotes,
       totalElections,
-      activeElections
+      activeElections,
+      positions,
+      approvedCandidates,
+      pendingCandidates,
+      disqualified
     };
   }, [candidates, elections]);
 

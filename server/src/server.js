@@ -42,4 +42,12 @@ const PORT = config.port || 5000;
 
   // Start tally sync job
   startTallySyncJob();
+
+  // Start election status scheduler (auto-open/close based on startsAt/endsAt)
+  try {
+    const { startStatusScheduler } = require('./jobs/statusScheduler');
+    startStatusScheduler();
+  } catch (err) {
+    logger.warn('Status scheduler not available: %s', err?.message || err);
+  }
 })();
