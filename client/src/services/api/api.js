@@ -84,20 +84,25 @@ API.interceptors.response.use(
 
     // Handle authentication errors
     if (error.response && error.response.status === 401) {
-      // Clear token and user data
-      try { localStorage.removeItem('token'); } catch (e) {}
-      try { localStorage.removeItem('user'); } catch (e) {}
+      // Check if caller explicitly opted out of auto-redirect (for mutations that handle 401 themselves)
+      const skipAutoRedirect = error.config?.skipAuthRedirect === true;
+      
+      if (!skipAutoRedirect) {
+        // Clear token and user data only if not explicitly skipped
+        try { localStorage.removeItem('token'); } catch (e) {}
+        try { localStorage.removeItem('user'); } catch (e) {}
 
-      // Store a short-lived message for the login page to display (sessionStorage clears on tab close)
-      try {
-        const message = (error.response && error.response.data && (error.response.data.message || error.response.data.error)) || 'Session expired or unauthorized. Please login again.';
-        sessionStorage.setItem('auth_message', JSON.stringify({ type: 'error', text: message }));
-      } catch (e) { /* ignore */ }
+        // Store a short-lived message for the login page to display (sessionStorage clears on tab close)
+        try {
+          const message = (error.response && error.response.data && (error.response.data.message || error.response.data.error)) || 'Session expired or unauthorized. Please login again.';
+          sessionStorage.setItem('auth_message', JSON.stringify({ type: 'error', text: message }));
+        } catch (e) { /* ignore */ }
 
-      // Don't redirect if we're already on the login page
-      if (!window.location.pathname.includes('/login')) {
-        // Redirect user to the unified login route with a hint so the login UI can surface a friendly prompt
-        window.location.href = '/login?unauth=1';
+        // Don't redirect if we're already on the login page
+        if (!window.location.pathname.includes('/login')) {
+          // Redirect user to the unified login route with a hint so the login UI can surface a friendly prompt
+          window.location.href = '/login?unauth=1';
+        }
       }
     }
     return Promise.reject(error);
@@ -151,10 +156,10 @@ export const electionsAPI = {
   delete: (id) => API.delete(`/elections/${id}`).then(res => res.data),
   
   // F.1.2: Election Lifecycle Control
-  changeStatus: (id, status, adminPassword) => API.patch(`/elections/${id}/status`, { status, adminPassword }).then(res => res.data),
+  changeStatus: (id, status, adminPassword) => API.patch(`/elections/${id}/status`, { status, adminPassword }, { skipAuthRedirect: true }).then(res => res.data),
   toggleVoting: (id, enabled) => API.patch(`/elections/${id}/voting`, { enabled }).then(res => res.data),
   resetElection: (id, resetData) => API.post(`/elections/${id}/reset`, resetData).then(res => res.data),
-  clearVotes: (id, adminPassword) => API.post(`/elections/${id}/clear-votes`, { adminPassword }).then(res => res.data),
+  clearVotes: (id, adminPassword) => API.post(`/elections/${id}/clear-votes`, { adminPassword }, { skipAuthRedirect: true }).then(res => res.data),
   lockCandidateList: (id) => API.patch(`/elections/${id}/candidates/lock`).then(res => res.data),
   
   // F.3.1: Candidate Management
@@ -169,7 +174,7 @@ export const electionsAPI = {
   vote: (electionId, voteData) => API.post(`/elections/${electionId}/vote`, voteData).then(res => res.data),
   
   // F.5.1-F.5.3: Results & Tallying
-  finalizeTally: (id, adminPassword) => API.post(`/elections/${id}/finalize`, { adminPassword }).then(res => res.data),
+  finalizeTally: (id, adminPassword) => API.post(`/elections/${id}/finalize`, { adminPassword }, { skipAuthRedirect: true }).then(res => res.data),
   getTurnoutAnalytics: (id) => API.get(`/elections/${id}/turnout`).then(res => res.data),
   getFinalResults: (id) => API.get(`/elections/${id}/results`).then(res => res.data),
   exportResults: (id, format = 'json') => API.get(`/elections/${id}/export?format=${format}`).then(res => res.data),

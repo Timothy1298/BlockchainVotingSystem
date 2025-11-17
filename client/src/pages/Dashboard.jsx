@@ -42,14 +42,14 @@ const VotePieChart = memo(({ data }) => (
   <div className="h-full flex items-center justify-center bg-gray-800 rounded-lg border border-gray-700 p-3">
     <div className="w-full">
       <div className="text-sm text-gray-400 mb-2">Vote Distribution</div>
-      <div className="space-y-2">
-        {(data || []).map((d, i) => (
+      <div className="space-y-2 max-h-56 overflow-y-auto pr-2">
+              {(data || []).map((d, i) => (
           <div key={d.id || d.label || i} className="flex items-center gap-3">
-            <div className="w-2 h-6" style={{ background: ['#38bdf8','#34d399','#a78bfa','#f97316','#ef4444'][i % 5] }} />
-            <div className="flex-1">
-              <div className="flex justify-between">
-                <div className="text-white text-sm font-medium">{d.label || d.name}</div>
-                <div className="text-gray-400 text-xs">{d.value ?? d.votes ?? 0}</div>
+            <div className="w-2 h-6 flex-shrink-0" style={{ background: ['#38bdf8','#34d399','#a78bfa','#f97316','#ef4444'][i % 5] }} />
+            <div className="flex-1 min-w-0">
+              <div className="flex justify-between items-center">
+                <div className="text-white text-sm font-medium truncate max-w-[70%]" title={d.label || d.name}>{d.label || d.name}</div>
+                <div className="text-gray-400 text-xs ml-2">{d.value ?? d.votes ?? 0}</div>
               </div>
               <div className="w-full bg-gray-700 h-2 rounded mt-1 overflow-hidden">
                 <div className="h-2 bg-sky-400" style={{ width: `${Math.min(100, d.percentage ?? 0)}%` }} />
@@ -66,14 +66,14 @@ const VotePieChart = memo(({ data }) => (
 VotePieChart.displayName = 'VotePieChart';
 
 const VoteBarChart = memo(({ data }) => (
-  <div className="h-full bg-gray-800 rounded-lg border border-gray-700 p-4">
+  <div className="h-full bg-gray-800 rounded-lg border border-gray-700 p-4 box-border">
     <div className="text-sm text-gray-400 mb-2">Vote Tally</div>
-    <div className="space-y-3">
+    <div className="space-y-3 max-h-56 overflow-y-auto pr-2">
       {(data || []).map((d, i) => (
         <div key={d.id || d.label || i}>
           <div className="flex justify-between items-center text-sm text-gray-300 mb-1">
-            <div className="truncate max-w-[65%]">{d.label || d.name}</div>
-            <div className="font-mono text-xs text-gray-400">{d.value ?? d.votes ?? 0}</div>
+            <div className="truncate max-w-[65%]" title={d.label || d.name}>{d.label || d.name}</div>
+            <div className="font-mono text-xs text-gray-400 ml-2">{d.value ?? d.votes ?? 0}</div>
           </div>
           <div className="w-full bg-gray-700 h-3 rounded overflow-hidden">
             <div className="h-3 bg-emerald-400" style={{ width: `${Math.min(100, d.percentage ?? 0)}%` }} />
@@ -86,6 +86,36 @@ const VoteBarChart = memo(({ data }) => (
 ));
 
 VoteBarChart.displayName = 'VoteBarChart';
+
+// Small in-page mini navigation used on the dashboard for quick access
+const MiniNav = ({ onNavigate }) => (
+  <nav className="bg-gray-900 border border-gray-700 rounded-lg p-3">
+    <ul className="space-y-1 text-sm">
+      {[
+        {k:'home', label: 'Dashboard', to: '/admin', icon: Activity},
+        {k:'elections', label: 'Elections', to: '/admin/elections', icon: Calendar},
+        {k:'candidates', label: 'Candidates', to: '/admin/candidates', icon: Users},
+        {k:'voters', label: 'Voters', to: '/admin/voters', icon: Vote},
+        {k:'results', label: 'Results', to: '/admin/results', icon: BarChart3},
+        {k:'system', label: 'System', to: '/admin/system', icon: PieChart},
+        {k:'security', label: 'Security', to: '/admin/security', icon: Shield},
+        {k:'logs', label: 'Logs', to: '/admin/logs', icon: AlertTriangle},
+  {k:'settings', label: 'Settings', to: '/admin/settings', icon: TrendingUp}
+      ].map(item => (
+        <li key={item.k}>
+          <button
+            onClick={() => onNavigate ? onNavigate(item.to) : window.location.assign(item.to)}
+            className="w-full flex items-center gap-3 text-left px-3 py-2 rounded hover:bg-gray-800 transition"
+          >
+            {item.icon ? <item.icon className="w-4 h-4 text-sky-400" /> : <span className="w-4 h-4" />}
+            <span className="text-gray-200">{item.label}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  </nav>
+);
+
 
 
 const Dashboard = memo(() => {
@@ -101,7 +131,12 @@ const Dashboard = memo(() => {
   const { data: usersData, isLoading: usersLoading } = useQuery({
     queryKey: ['users'],
     queryFn: usersAPI.list,
-    staleTime: 1000 * 30,
+    // Increase stale time to reduce frequent refetches and disable auto refetch on focus/reconnect
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    cacheTime: 1000 * 60 * 10, // 10 minutes
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
   });
   const { data: systemData, isLoading: systemLoading, error: systemError } = useSystemMonitoring();
 
@@ -117,6 +152,11 @@ const Dashboard = memo(() => {
   const [candidateSearch, setCandidateSearch] = useState('');
   const [candidatePage, setCandidatePage] = useState(1);
   const CANDIDATES_PER_PAGE = 10;
+
+  // Elections list UI filters/sorting
+  const [electionFilterStatus, setElectionFilterStatus] = useState('all');
+  const [electionCategory, setElectionCategory] = useState('all');
+  const [electionSort, setElectionSort] = useState('dateCreated');
 
   const [focusedElection, setFocusedElection] = useState(null);
   const [focusedCandidates, setFocusedCandidates] = useState([]);
@@ -182,6 +222,12 @@ const Dashboard = memo(() => {
   const logs = useMemo(() => systemData?.logs || [], [systemData]);
   const systemAlerts = useMemo(() => systemData?.alerts || [], [systemData]);
   const notifications = useMemo(() => systemData?.notifications || [], [systemData]);
+
+  // Lightweight system meta used by footer and security card
+  const systemVersion = systemData?.version || systemData?.build?.version || 'unknown';
+  const buildTime = systemData?.buildTime || systemData?.build?.time || '';
+  const uptimeSeconds = systemData?.uptime || (systemData?.startedAt ? Math.floor((Date.now() - new Date(systemData.startedAt).getTime())/1000) : 0);
+  const uptimePretty = `${Math.floor(uptimeSeconds/3600)}h ${Math.floor((uptimeSeconds%3600)/60)}m`;
 
   // Choose an election to show analytics for (priority: focused -> active -> completed)
   const chartElectionId = (focusedElection && (focusedElection._id || focusedElection.id)) || (overview.active?.[0]?._id) || (overview.completed?.[0]?._id) || null;
@@ -250,8 +296,20 @@ const Dashboard = memo(() => {
       await refetchElections();
     } catch (err) {
       console.error('Action error:', err);
-      const errorMessage = err.response?.data?.message || err.message || 'Failed to perform action';
-      showToast(errorMessage, 'error');
+      // Handle 401 (auth) errors gracefully — do not redirect to login silently
+      if (err.response?.status === 401) {
+        const authError = err.response?.data?.message || 'Admin password is incorrect or session expired. Please try again.';
+        showToast(authError, 'error');
+        // Restore token from localStorage if it exists (prevent silent logout)
+        const savedToken = localStorage.getItem('token');
+        if (!savedToken && token) {
+          // If interceptor cleared token but we still have context token, the session was interrupted
+          showToast('Your session was interrupted. Please log in again.', 'error');
+        }
+      } else {
+        const errorMessage = err.response?.data?.message || err.message || 'Failed to perform action';
+        showToast(errorMessage, 'error');
+      }
     } finally {
       setShowPasswordPrompt(false);
       setPendingAction(null);
@@ -308,12 +366,14 @@ const Dashboard = memo(() => {
             <div className="text-xs text-gray-400 ml-2">Last Synced: <span className="text-sky-300 font-mono">{Math.floor((nowTicks - lastSynced)/1000)}s ago</span></div>
           </div>
           <div className="flex items-center gap-3">
-            <select value={selectedElectionId || ''} onChange={(e)=>{ setSelectedElectionId(e.target.value); refetchFinalResults?.(); setLastSynced(Date.now()); }} className="bg-gray-800 text-white p-2 rounded border border-gray-700 text-sm">
+            <div className="max-w-xs overflow-hidden">
+              <select value={selectedElectionId || ''} onChange={(e)=>{ setSelectedElectionId(e.target.value); refetchFinalResults?.(); setLastSynced(Date.now()); }} className="bg-gray-800 text-white p-2 rounded border border-gray-700 text-sm w-full truncate">
               <option value="">-- Select Active Election --</option>
               {(Array.isArray(elections) ? elections : []).map(ev => (
-                <option key={ev._id} value={ev._id}>{ev.title} ({String(ev.status).toUpperCase()})</option>
+                <option key={ev._id} value={ev._id} title={ev.title}>{ev.title} ({String(ev.status).toUpperCase()})</option>
               ))}
-            </select>
+              </select>
+            </div>
             <button title="Refresh" onClick={async ()=>{ await refetchElections(); refetchFinalResults?.(); setLastSynced(Date.now()); }} className="p-2 rounded bg-gray-800 border border-gray-700 hover:bg-gray-700 text-sky-300">
               <RefreshCw className="w-4 h-4" />
             </button>
@@ -401,39 +461,54 @@ const Dashboard = memo(() => {
         </motion.div>
       )}
 
-      {/* QUICK STATS OVERVIEW */}
+      {/* QUICK STATS OVERVIEW (enhanced) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <StatCard
-          icon={Users}
-          title="Total Voters"
-          value={voterStats.total}
-          subtitle={`${voterStats.cast} votes cast`}
-          trend="up"
-          trendValue={voterStats.rate}
-          highlightColor="text-sky-400"
-        />
-        <StatCard
-          icon={Vote}
-          title="Active Elections"
-          value={overview.active?.length || 0}
-          subtitle={`${overview.upcoming?.length || 0} upcoming`}
-          highlightColor="text-emerald-400"
-        />
-        <StatCard
-          icon={Activity}
-          title="Blockchain Health"
-          value={blockchain.nodes || 0}
-          subtitle={`${blockchain.blocks || 0} blocks`}
-          highlightColor="text-purple-400"
-        />
-        <StatCard
-          icon={Shield}
-          title="Security Status"
-          value={systemAlerts.length === 0 ? "Secure" : "Alert"}
-          subtitle={`${logs.length} audit logs`}
-          highlightColor={systemAlerts.length === 0 ? "text-green-400" : "text-red-400"}
-          alertsCount={(systemAlerts || []).length}
-        />
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="relative">
+          <StatCard
+            icon={Users}
+            title="Total Voters"
+            value={voterStats.total}
+            subtitle={`${voterStats.cast} votes cast`}
+            trend="up"
+            trendValue={voterStats.rate}
+            highlightColor="text-sky-400"
+          />
+          <div className="absolute -top-2 -right-2 bg-gray-800 text-xs px-2 py-0.5 rounded text-sky-300 border border-gray-700">{voterStats.rate}%</div>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="relative">
+          <StatCard
+            icon={Vote}
+            title="Active Elections"
+            value={overview.active?.length || 0}
+            subtitle={`${overview.upcoming?.length || 0} upcoming`}
+            highlightColor="text-emerald-400"
+          />
+          <div className={`absolute -top-2 -right-2 text-xs px-2 py-0.5 rounded ${overview.active?.length > 0 ? 'bg-emerald-700 text-white' : 'bg-gray-700 text-gray-300'}`}>{overview.active?.length || 0}</div>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="relative">
+          <StatCard
+            icon={Activity}
+            title="Blockchain Health"
+            value={blockchain.nodes || 0}
+            subtitle={`${blockchain.blocks || 0} blocks`}
+            highlightColor="text-purple-400"
+          />
+          <div className={`absolute -top-2 -right-2 text-xs px-2 py-0.5 rounded ${blockchain.nodes > 1 ? 'bg-green-700 text-white' : 'bg-yellow-600 text-black'}`}>{blockchain.nodes} nodes</div>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="relative">
+          <StatCard
+            icon={Shield}
+            title="Security Status"
+            value={systemAlerts.length === 0 ? "Secure" : "Alert"}
+            subtitle={`${logs.length} audit logs`}
+            highlightColor={systemAlerts.length === 0 ? "text-green-400" : "text-red-400"}
+            alertsCount={(systemAlerts || []).length}
+          />
+          {(systemAlerts || []).length > 0 && <div className="absolute -top-2 -right-2 bg-red-600 text-white text-xs px-2 py-0.5 rounded">{(systemAlerts || []).length} Alerts</div>}
+        </motion.div>
       </div>
 
       {/* SYSTEM STATUS & PERFORMANCE DASHBOARD */}
@@ -447,6 +522,10 @@ const Dashboard = memo(() => {
         
         {/* === COLUMN 1: System Status & Tools (Vertical Focus) === */}
         <div className="xl:col-span-1 space-y-8">
+            {/* Mini navigation summary for quick discovery */}
+            <div>
+              <MiniNav onNavigate={(to)=>navigate(to)} />
+            </div>
             
             {/* User Info (Prominent) */}
             <section className="bg-gray-800 rounded-2xl p-6 border-b-4 border-sky-600 shadow-xl">
@@ -481,6 +560,24 @@ const Dashboard = memo(() => {
               description={`${blockchain.nodes || 0} nodes online, ${blockchain.blocks || 0} blocks confirmed`}
               icon={Activity}
             />
+            
+            {/* Admin Security Snapshot */}
+            <section className="bg-gray-800 rounded-2xl p-4 border border-gray-700">
+              <h3 className="text-lg font-semibold text-sky-400 mb-2">Admin Security</h3>
+              <div className="text-sm text-gray-300 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span>System integrity</span>
+                  <span className={`font-mono ${systemAlerts.length===0? 'text-emerald-400':'text-yellow-300'}`}>{systemAlerts.length===0? 'Good' : `${systemAlerts.length} issue(s)`}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Last admin login</span>
+                  <span className="text-gray-400 text-xs">{systemData?.lastAdminLogin || '—'}</span>
+                </div>
+                <div className="pt-2">
+                  <button onClick={()=>navigate('/admin/security')} className="w-full bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded">Review Security / 2FA</button>
+                </div>
+              </div>
+            </section>
         </div>
         
         {/* === COLUMN 2: Core Data (Elections & Results Charts) === */}
@@ -545,7 +642,7 @@ const Dashboard = memo(() => {
                                     <div className="flex-1">
                                       <div className="flex items-start justify-between gap-2">
                                         <div>
-                                          <div className="font-semibold text-white">{c.name || c.fullName || c.label}</div>
+                          <div className="font-semibold text-white truncate max-w-[200px]" title={c.name || c.fullName || c.label}>{c.name || c.fullName || c.label}</div>
                                           <div className="text-xs text-gray-400">Seat: {c.seat || c.label || '—'}</div>
                                         </div>
                                         <div className="text-right">
@@ -645,6 +742,31 @@ const Dashboard = memo(() => {
             {/* Election Overview with Quick Links */}
             <div className="pt-4">
                 <h2 className="text-xl font-bold text-sky-400 mb-4">Elections at a Glance</h2>
+                {/* Filters & sorting bar */}
+                <div className="mb-3 flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <select value={electionFilterStatus} onChange={e=>setElectionFilterStatus(e.target.value)} className="bg-gray-800 text-white px-3 py-2 rounded text-sm border border-gray-700">
+                      <option value="all">All statuses</option>
+                      <option value="active">Active</option>
+                      <option value="upcoming">Upcoming</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                    <select value={electionCategory} onChange={e=>setElectionCategory(e.target.value)} className="bg-gray-800 text-white px-3 py-2 rounded text-sm border border-gray-700">
+                      <option value="all">All categories</option>
+                      <option value="president">President</option>
+                      <option value="governor">Governor</option>
+                      <option value="mp">MP</option>
+                    </select>
+                    <select value={electionSort} onChange={e=>setElectionSort(e.target.value)} className="bg-gray-800 text-white px-3 py-2 rounded text-sm border border-gray-700">
+                      <option value="dateCreated">Sort: Date created</option>
+                      <option value="votes">Sort: Votes</option>
+                      <option value="alpha">Sort: Alphabetical</option>
+                    </select>
+                  </div>
+                  <div className="ml-auto">
+                    <button onClick={()=>{ /* placeholder: could refetch or apply more complex filtering */ }} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm">Apply</button>
+                  </div>
+                </div>
                 <div className="space-y-4">
                     {["active","upcoming","completed"].map(type => (
                         <div key={type} className="border-l-4 border-sky-600/70 pl-4">
@@ -653,8 +775,8 @@ const Dashboard = memo(() => {
                                 {(Array.isArray(overview[type]) ? overview[type] : []).map(ev => (
                                     <li key={ev._id} className="py-2 flex flex-col md:flex-row md:items-center md:justify-between">
                                         <div>
-                                            <span className="font-bold text-sky-400">{ev.title}</span>
-                                            <span className="ml-2 text-xs text-gray-400">{type==="completed" ? `Ended: ${ev.end}` : `${ev.start} - ${ev.end}`}</span>
+                                                                      <span className="font-bold text-sky-400 block truncate max-w-[60vw] md:max-w-[36rem]" title={ev.title}>{ev.title}</span>
+                                                                      <span className="ml-2 text-xs text-gray-400">{type==="completed" ? `Ended: ${ev.end}` : `${ev.start} - ${ev.end}`}</span>
                                         </div>
                                         <div className="flex items-center gap-2 mt-1 md:mt-0">
                                             <span className={`px-2 py-1 rounded-full text-xs font-bold ${type==="active"?"bg-emerald-700":type==="upcoming"?"bg-yellow-700":"bg-gray-700"} text-white`}>
@@ -707,7 +829,8 @@ const Dashboard = memo(() => {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                       >
-                        <span className="text-sky-400 font-mono">[{log.timestamp}]</span> {log.action}
+                        <span className="text-sky-400 font-mono">[{log.timestamp}]</span>
+                        <span className="ml-2 truncate block" title={log.action}>{log.action}</span>
                       </motion.li>
                     ))}
                     {(Array.isArray(logs) && logs.length === 0) && <li className="text-gray-500 py-2 px-3">No recent security events recorded.</li>}
@@ -769,6 +892,17 @@ const Dashboard = memo(() => {
         }
         action={pendingAction?.type === 'clearVotes' ? 'Clear All Votes' : pendingAction?.type === 'changeStatus' ? `Change to ${pendingAction.status}` : 'Confirm'}
       />
+      {/* Dashboard Footer */}
+      <footer className="mt-8 pt-6 border-t border-gray-800 text-sm text-gray-400 flex items-center justify-between">
+        <div>
+          <div>System version: <span className="text-white font-mono">{systemVersion}</span></div>
+          <div>Build: <span className="text-gray-300">{buildTime || 'n/a'}</span></div>
+        </div>
+        <div className="text-right">
+          <div>Uptime: <span className="text-white">{uptimePretty}</span></div>
+          <div>Support: <a href="mailto:support@example.org" className="text-sky-300">support@example.org</a></div>
+        </div>
+      </footer>
     </DashboardLayout>
   );
 });

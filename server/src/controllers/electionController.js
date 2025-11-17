@@ -108,7 +108,7 @@ exports.changeStatus = async (req, res) => {
       
       // Verify admin password (in production, this should be hashed and stored securely)
       const expectedPassword = process.env.ELECTION_ADMIN_PASSWORD || 'admin123';
-      const isValidPassword = await bcrypt.compare(adminPassword, await bcrypt.hash(expectedPassword, 10)) || adminPassword === expectedPassword;
+      const isValidPassword = adminPassword === expectedPassword;
       
       if (!isValidPassword) {
         await AuditLog.create({
@@ -672,7 +672,10 @@ exports.clearVotes = async (req, res) => {
     
     // Verify admin password
     const expectedPassword = process.env.ELECTION_ADMIN_PASSWORD || 'admin123';
-    const isValidPassword = await bcrypt.compare(adminPassword, await bcrypt.hash(expectedPassword, 10)) || adminPassword === expectedPassword;
+    console.log('clearVotes: received password length:', adminPassword?.length, 'expected password length:', expectedPassword?.length);
+    console.log('clearVotes: ELECTION_ADMIN_PASSWORD env var:', process.env.ELECTION_ADMIN_PASSWORD ? 'SET' : 'NOT SET');
+    const isValidPassword = adminPassword === expectedPassword;
+    console.log('clearVotes: password match:', isValidPassword, 'received:', adminPassword, 'expected:', expectedPassword);
     
     if (!isValidPassword) {
       await AuditLog.create({
@@ -742,7 +745,7 @@ exports.finalizeTally = async (req, res) => {
     
     // Verify admin password
     const expectedPassword = process.env.ELECTION_ADMIN_PASSWORD || 'admin123';
-    const isValidPassword = await bcrypt.compare(adminPassword, await bcrypt.hash(expectedPassword, 10)) || adminPassword === expectedPassword;
+    const isValidPassword = adminPassword === expectedPassword;
     
     if (!isValidPassword) {
       await AuditLog.create({
@@ -1078,7 +1081,7 @@ exports.resetElection = async (req, res) => {
     
     // Verify admin password
     const expectedPassword = process.env.ELECTION_ADMIN_PASSWORD || 'admin123';
-    const isValidPassword = await bcrypt.compare(adminPassword, await bcrypt.hash(expectedPassword, 10)) || adminPassword === expectedPassword;
+    const isValidPassword = adminPassword === expectedPassword;
     
     if (!isValidPassword) {
       await AuditLog.create({
